@@ -7,10 +7,10 @@ on:
   pull_request:
 
 permissions:
-  actions: write
-  checks: write
-  contents: write
-    
+    actions: write
+    checks: write
+    contents: write
+    id-token: write
 
 jobs:
     
@@ -32,7 +32,7 @@ jobs:
           flutter pub get
 
       - name: Build
-        run: flutter build web --base-href /llm-graph-chat/
+        run: flutter build web --base-href /llm_graph_chat/
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
