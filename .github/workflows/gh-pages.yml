@@ -6,7 +6,14 @@ on:
       - main
   pull_request:
 
+permissions:
+  actions: write
+  checks: write
+  contents: write
+    
+
 jobs:
+    
   deploy:
     runs-on: ubuntu-22.04
     concurrency:
