@@ -100,6 +100,9 @@ flutter pub run build_runner build --delete-conflicting-outputs
 3. Gemini APIキーの設定:
 アプリ起動時に設定画面でAPIキーを入力
 
-4. アプリの実行:
-```bash
-flutter run
+## TODO
+- ほかのLLMへの対応
+- チャット履歴のファイル保存・書き出しなど
+- ストリーム出力
+- ノードの種類・色の追加
+- 全体的な体験の向上
