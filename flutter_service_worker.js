@@ -11,7 +11,7 @@ const RESOURCES = {"assets/FontManifest.json": "dc3d03800ccca4601324923c0b1d6d57
 "assets/shaders/ink_sparkle.frag": "ecc85a2e95f5e9f53123dcaf8cb9b6ce",
 "assets/AssetManifest.json": "2efbb41d7877d10aac9d091f58ccd7b9",
 "assets/fonts/MaterialIcons-Regular.otf": "ef6c28283f09798a7d087026fb0af5d0",
-"flutter_bootstrap.js": "ec64a745c5f22659322080dbc34bcaeb",
+"flutter_bootstrap.js": "5515c0854e5bd64f864ea67c64764738",
 "icons/Icon-192.png": "ac9a721a12bbc803b44f645561ecb1e1",
 "icons/Icon-maskable-512.png": "301a7604d45b3e739efc881eb04896ea",
 "icons/Icon-maskable-192.png": "c457ef57daa1d16f64b27b786ec2ea3c",
