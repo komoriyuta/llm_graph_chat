@@ -30,20 +30,20 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  google_generative_ai: ^0.2.0
-  flutter_secure_storage: ^8.0.0
-  graphview: ^1.2.0
-  path_provider: ^2.1.1
-  uuid: ^3.0.7
-  json_annotation: ^4.8.1
+  cupertino_icons: any
+  google_generative_ai: any
+  flutter_secure_storage: ^9.2.4
+  graphview: any
+  path_provider: any
+  uuid: any
+  json_annotation: any
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
-  build_runner: ^2.4.6
-  json_serializable: ^6.7.1
+  flutter_lints: any
+  build_runner: any
+  json_serializable: any
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
