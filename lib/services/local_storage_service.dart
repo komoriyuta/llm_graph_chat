@@ -6,6 +6,11 @@ import '../models/session_list.dart';
 class LocalStorageService {
   static const String _sessionsKey = 'chat_sessions';
   static const String _darkModeKey = 'dark_mode';
+  static const String _nodeWidthKey = 'node_width';
+  static const String _nodeHeightKey = 'node_height';
+
+  static const double defaultNodeWidth = 300.0;
+  static const double defaultNodeHeight = 200.0;
   
   // セッションの保存
   Future<void> saveSession(GraphSession session) async {
@@ -74,5 +79,29 @@ class LocalStorageService {
   Future<bool> getDarkMode() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_darkModeKey) ?? false;
+  }
+
+  // ノードの幅設定の保存
+  Future<void> setNodeWidth(double width) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_nodeWidthKey, width);
+  }
+
+  // ノードの幅設定の読み込み
+  Future<double> getNodeWidth() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(_nodeWidthKey) ?? defaultNodeWidth;
+  }
+
+  // ノードの高さ設定の保存
+  Future<void> setNodeHeight(double height) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_nodeHeightKey, height);
+  }
+
+  // ノードの高さ設定の読み込み
+  Future<double> getNodeHeight() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(_nodeHeightKey) ?? defaultNodeHeight;
   }
 }

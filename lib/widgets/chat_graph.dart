@@ -246,12 +246,31 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                     else
                       const SizedBox(width: 20),
 
-                    Text(
-                      "You: ${node.userInput}",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: textColor,
+                    Container(
+                      constraints: BoxConstraints(
+                        maxWidth: context.watch<ThemeProvider>().nodeWidth,
+                        maxHeight: context.watch<ThemeProvider>().nodeHeight,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Scrollbar(
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Text(
+                              "You: ${node.userInput}",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: textColor,
+                              ),
+                              softWrap: true,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -259,11 +278,30 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 const SizedBox(height: 4),
 
                 if (!node.isCollapsed && node.llmOutput.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 24.0),
-                    child: Text(
-                      "LLM: ${node.llmOutput}",
-                      style: TextStyle(fontSize: 13, color: textColor),
+                Padding(
+                  padding: const EdgeInsets.only(left: 24.0),
+                  child: Container(
+                    constraints: BoxConstraints(
+                      maxWidth: context.watch<ThemeProvider>().nodeWidth,
+                      maxHeight: context.watch<ThemeProvider>().nodeHeight,
+                    ),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Scrollbar(
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Text(
+                              "LLM: ${node.llmOutput}",
+                              style: TextStyle(fontSize: 13, color: textColor),
+                              softWrap: true,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
 

@@ -125,6 +125,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 24),
                 const Divider(),
                 const SizedBox(height: 24),
+
+                // ノードサイズ設定
+                const Text(
+                  'ノードサイズ設定',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Consumer<ThemeProvider>(
+                  builder: (context, themeProvider, child) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ノードの幅: ${themeProvider.nodeWidth.round()}px'),
+                        Slider(
+                          value: themeProvider.nodeWidth,
+                          min: 200,
+                          max: 500,
+                          divisions: 30,
+                          label: themeProvider.nodeWidth.round().toString(),
+                          onChanged: (value) {
+                            themeProvider.updateNodeSize(value, themeProvider.nodeHeight);
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        Text('ノードの高さ: ${themeProvider.nodeHeight.round()}px'),
+                        Slider(
+                          value: themeProvider.nodeHeight,
+                          min: 100,
+                          max: 400,
+                          divisions: 30,
+                          label: themeProvider.nodeHeight.round().toString(),
+                          onChanged: (value) {
+                            themeProvider.updateNodeSize(themeProvider.nodeWidth, value);
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 24),
                 const Text(
                   'LLM API Key (Gemini)',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
