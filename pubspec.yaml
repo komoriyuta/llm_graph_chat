@@ -40,6 +40,7 @@ dependencies:
   uuid: any
   json_annotation: any
   http: ^1.2.0
+  flutter_markdown: ^0.6.20
 
 dev_dependencies:
   flutter_test:

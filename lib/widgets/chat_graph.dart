@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
@@ -303,10 +304,38 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                         child: SingleChildScrollView(
                           child: Padding(
                             padding: const EdgeInsets.all(8.0),
-                            child: Text(
-                              "LLM: ${node.llmOutput}",
-                              style: TextStyle(fontSize: 13, color: textColor),
-                              softWrap: true,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "LLM:",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: textColor,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                MarkdownBody(
+                                  data: node.llmOutput,
+                                  styleSheet: MarkdownStyleSheet(
+                                    p: TextStyle(fontSize: 13, color: textColor),
+                                    code: TextStyle(
+                                      fontSize: 12,
+                                      color: textColor,
+                                      backgroundColor: isDarkMode
+                                          ? Colors.grey.shade900
+                                          : Colors.grey.shade200,
+                                    ),
+                                    codeblockDecoration: BoxDecoration(
+                                      color: isDarkMode
+                                          ? Colors.grey.shade900
+                                          : Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
