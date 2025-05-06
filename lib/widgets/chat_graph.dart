@@ -82,6 +82,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   String? _focusedNodeId;
   final Map<String, Offset> _nodePositions = {};
   late Map<String, ChatNode> _chatNodeMap;
+  bool _isNodeHovered = false;
+  final TransformationController _transformationController = TransformationController();
 
   @override
   void initState() {
@@ -114,6 +116,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   void dispose() {
     _nodeInputController.dispose();
     _nodeInputFocusNode.dispose();
+    _transformationController.dispose();
     super.dispose();
   }
 
@@ -132,6 +135,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       boundaryMargin: const EdgeInsets.all(100),
       minScale: 0.01,
       maxScale: 2.0,
+      transformationController: _transformationController,
+      scaleEnabled: !_isNodeHovered,
+      panEnabled: !_isNodeHovered,
       child: SizedBox(
         width: 3000,
         height: 3000,
@@ -183,7 +189,10 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   }
 
   Widget _buildNodeContent(ChatNode node, bool isSelected, bool canCollapse) {
-    return GestureDetector(
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isNodeHovered = true),
+      onExit: (_) => setState(() => _isNodeHovered = false),
+      child: GestureDetector(
       onTap: () {
         widget.onNodeSelected(node);
         setState(() { _focusedNodeId = node.id; });
@@ -348,6 +357,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             ),
           );
         },
+      ),
       ),
     );
   }
