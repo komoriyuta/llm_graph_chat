@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
-import 'screens/chat_screen.dart'; // Import ChatScreen
+import 'package:provider/provider.dart';
+import 'screens/chat_screen.dart';
+import 'providers/theme_provider.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => ThemeProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -10,15 +17,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'LLM Graph Chat',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true, // Enable Material 3
-      ),
-      home: const ChatScreen(), // Set ChatScreen as the home screen
-      // Remove the default counter app code (MyHomePage)
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          title: 'LLM Graph Chat',
+          theme: themeProvider.theme,
+          home: const ChatScreen(),
+        );
+      },
     );
   }
 }
-// Remove the MyHomePage and _MyHomePageState classes entirely

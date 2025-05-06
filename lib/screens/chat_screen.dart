@@ -1,9 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../utils/platform_util.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
 import '../services/llm_service.dart';
 import '../services/secure_storage_service.dart';
+import '../services/local_storage_service.dart';
 import '../widgets/chat_graph.dart';
+import '../widgets/session_drawer.dart';
 import 'settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -17,14 +21,17 @@ class _ChatScreenState extends State<ChatScreen> {
   late GraphSession _currentSession;
   ChatNode? _selectedNode;
   late LlmService _llmService;
+  late LocalStorageService _storageService;
   bool _isGenerating = false;
   String? _selectedModel;
   List<String> _availableModels = [];
+  List<GraphSession> _allSessions = [];
 
   @override
   void initState() {
     super.initState();
     _llmService = LlmService(SecureStorageService());
+    _storageService = LocalStorageService();
     _initializeScreen();
   }
 
@@ -39,12 +46,99 @@ class _ChatScreenState extends State<ChatScreen> {
     final selectedModel = await SecureStorageService().getSelectedModel();
     _selectedModel = selectedModel ?? LlmService.defaultModel;
 
-    // セッションの初期化
+    // 保存されているセッションを読み込む
+    final sessions = await _storageService.loadSessions();
     if (!mounted) return;
-    _currentSession = GraphSession(title: 'New Chat');
-    _selectedNode = null;
 
-    setState(() => _isGenerating = false);
+    setState(() {
+      _allSessions = sessions;
+      if (sessions.isNotEmpty) {
+        _currentSession = sessions.first;
+      } else {
+        _currentSession = GraphSession(title: 'New Chat');
+        _allSessions.add(_currentSession);
+      }
+      _selectedNode = null;
+      _isGenerating = false;
+    });
+  }
+
+  Future<void> _saveCurrentSession() async {
+    await _storageService.saveSession(_currentSession);
+  }
+
+  void _createNewSession() {
+    final newSession = GraphSession(title: 'New Chat');
+    setState(() {
+      _allSessions.add(newSession);
+      _currentSession = newSession;
+      _selectedNode = null;
+    });
+    _saveCurrentSession();
+  }
+
+  Future<void> _deleteSession(GraphSession session) async {
+    await _storageService.deleteSession(session.id);
+    setState(() {
+      _allSessions.removeWhere((s) => s.id == session.id);
+      if (_currentSession.id == session.id) {
+        if (_allSessions.isNotEmpty) {
+          _currentSession = _allSessions.first;
+        } else {
+          _createNewSession();
+        }
+      }
+    });
+  }
+
+  Future<void> _exportSession() async {
+    final now = DateTime.now();
+    final timestamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}'
+                     '_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    final filename = 'chat_export_$timestamp.json';
+    
+    // GraphSessionをJSON文字列に変換
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(_currentSession.toJson());
+    
+    try {
+      await exportFile(jsonStr, filename);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('チャット履歴をエクスポートしました')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('エクスポートに失敗しました')),
+      );
+    }
+  }
+
+  Future<void> _updateSessionTitle(GraphSession session, String newTitle) async {
+    final index = _allSessions.indexWhere((s) => s.id == session.id);
+    if (index != -1) {
+      final updatedSession = GraphSession(
+        id: session.id,
+        title: newTitle,
+        nodes: session.nodes,
+        rootNodeId: session.rootNodeId,
+        createdAt: session.createdAt,
+        updatedAt: DateTime.now(),
+      );
+
+      setState(() {
+        _allSessions[index] = updatedSession;
+        if (_currentSession.id == session.id) {
+          _currentSession = updatedSession;
+        }
+      });
+      await _storageService.updateSession(updatedSession);
+    }
+  }
+
+  void _switchSession(GraphSession session) {
+    setState(() {
+      _currentSession = session;
+      _selectedNode = null;
+    });
   }
 
   void _handleNodeSelected(ChatNode node) {
@@ -69,6 +163,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _currentSession.addNode(firstNode);
       _selectedNode = firstNode;
     });
+    await _saveCurrentSession();
 
     final llmResponse = await _llmService.generateResponse(_currentSession, firstNode);
 
@@ -79,6 +174,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       _isGenerating = false;
     });
+    await _saveCurrentSession();
   }
 
   void _toggleNodeCollapse(ChatNode node) {
@@ -112,6 +208,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       _selectedNode = newNode;
     });
+    await _saveCurrentSession();
 
     final llmResponse = await _llmService.generateResponse(_currentSession, newNode);
 
@@ -122,6 +219,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       _isGenerating = false;
     });
+    await _saveCurrentSession();
   }
 
   Future<void> _handleModelChange(String? newModel) async {
@@ -165,6 +263,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     return Scaffold(
+      drawer: SessionDrawer(
+        sessions: _allSessions,
+        currentSession: _currentSession,
+        onSessionSelect: _switchSession,
+        onNewSession: _createNewSession,
+        onDeleteSession: _deleteSession,
+        onSessionTitleEdit: _updateSessionTitle,
+      ),
       appBar: AppBar(
         title: Row(
           children: [
@@ -200,6 +306,12 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
+          if (isSessionInitialized)
+            IconButton(
+              icon: const Icon(Icons.download),
+              tooltip: 'エクスポート',
+              onPressed: _exportSession,
+            ),
           if (_isGenerating && isSessionInitialized)
             const Padding(
               padding: EdgeInsets.only(right: 16.0),
