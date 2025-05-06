@@ -1,115 +1,113 @@
-import 'package:google_generative_ai/google_generative_ai.dart'; // Add this import
-import 'package:google_generative_ai/google_generative_ai.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'secure_storage_service.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
 
 class LlmService {
+  static const String _baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+  
+  // 利用可能なモデルのリスト
+  static const List<String> availableModels = [
+    'gemini-2.5-flash-preview-04-17','gemini-2.5-pro-preview-03-25','gemini-2.0-flash','gemini-2.0-flash-lite','gemini-1.5-flash','gemini-1.5-flash-8b','gemini-1.5-pro'
+  ];
+
+  // デフォルトモデル
+  static const String defaultModel = 'gemini-2.0-flash';
+
   final SecureStorageService _secureStorageService;
-  GenerativeModel? _model;
-  String? _apiKey; // Store API key locally
-  String? _selectedModelName; // Store the selected model name
+  String? _apiKey;
+  String? _selectedModelName;
 
   LlmService(this._secureStorageService);
 
-  // Initialize: Load API key and selected model, then create the model instance
+  List<String> getAvailableModels() {
+    return List.from(availableModels);
+  }
+
   Future<void> initialize() async {
     _apiKey = await _secureStorageService.getApiKey();
     _selectedModelName = await _secureStorageService.getSelectedModel();
 
-    if (_apiKey != null && _apiKey!.isNotEmpty && _selectedModelName != null && _selectedModelName!.isNotEmpty) {
-      try {
-        _model = GenerativeModel(model: _selectedModelName!, apiKey: _apiKey!);
-        print('LLM Service Initialized with model: $_selectedModelName');
-      } catch (e) {
-         print('Error initializing GenerativeModel: $e');
-         _model = null; // Ensure model is null if initialization fails
-      }
+    if (_selectedModelName == null || _selectedModelName!.isEmpty) {
+      _selectedModelName = defaultModel;
+      await _secureStorageService.saveSelectedModel(defaultModel);
+    }
+
+    if (_apiKey == null || _apiKey!.isEmpty) {
+      print('API Key not found. Please set the API Key.');
     } else {
-      _model = null; // Ensure model is null if no key or model selected
-      if (_apiKey == null || _apiKey!.isEmpty) {
-        print('API Key not found. Please set the API Key.');
-      }
-      if (_selectedModelName == null || _selectedModelName!.isEmpty) {
-         print('LLM Model not selected. Please select a model in settings.');
-      }
+      print('LLM Service Initialized with model: $_selectedModelName');
     }
   }
-
-  // // Get available models that support 'generateContent'
-  // // NOTE: Temporarily commented out due to potential API incompatibility with listModels
-  // Future<List<String>> getAvailableModels() async {
-  //   if (_apiKey == null || _apiKey!.isEmpty) {
-  //     print('Cannot list models: API Key not set.');
-  //     return []; // Return empty list if no API key
-  //   }
-  //   try {
-  //     // Use the top-level function to list models
-  //     // final modelsResponse = await GoogleGenerativeAI.listModels(apiKey: _apiKey!);
-  //     // // Filter models that support 'generateContent'
-  //     // final supportedModels = modelsResponse.models
-  //     //     .where((model) => model.supportedGenerationMethods != null && model.supportedGenerationMethods!.contains('generateContent'))
-  //     //     .map((model) => model.name) // Extract model names (e.g., "models/gemini-1.5-flash-latest")
-  //     //     .toList();
-  //     // // print("Available models supporting generateContent: $supportedModels"); // Debugging
-  //     // return supportedModels;
-  //     print("Warning: Model listing is temporarily disabled.");
-  //     return ['gemini-1.5-flash-latest', 'models/gemini-pro']; // Return common defaults as fallback
-  //   } catch (e) {
-  //     print('Error listing models: $e');
-  //     return []; // Return empty list on error
-  //   }
-  // }
-
 
   Future<String> generateResponse(GraphSession session, ChatNode currentNode) async {
-    // Ensure initialized before generating
-    if (_model == null) {
-      await initialize();
-      if (_model == null) {
-        // Provide more specific error based on initialization status
-        if (_apiKey == null || _apiKey!.isEmpty) return 'Error: API Key not set.';
-        if (_selectedModelName == null || _selectedModelName!.isEmpty) return 'Error: Model not selected.';
-        return 'Error: LLM Service not initialized correctly.';
-      }
+    if (_apiKey == null || _apiKey!.isEmpty) {
+      return 'Error: API Key not set.';
     }
 
-    final chatHistory = _buildChatHistory(session, currentNode);
+    if (_selectedModelName == null || _selectedModelName!.isEmpty) {
+      return 'Error: Model not selected.';
+    }
 
     try {
-      final response = await _model!.generateContent(chatHistory);
-      return response.text ?? 'Error: No response text from LLM.';
+      final url = Uri.parse('$_baseUrl/models/$_selectedModelName:generateContent?key=$_apiKey');
+      final chatHistory = _buildChatHistory(session, currentNode);
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'contents': chatHistory,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return _extractResponseText(data);
+      } else {
+        final error = jsonDecode(response.body);
+        throw Exception(error['error']['message'] ?? 'Unknown error occurred');
+      }
     } catch (e) {
       print('Error generating LLM response: $e');
-      // Check for specific API key errors if possible
       if (e.toString().contains('API key not valid')) {
-         return 'Error: Invalid API Key. Please check your API Key in settings.';
+        return 'Error: Invalid API Key. Please check your API Key in settings.';
       }
-      return 'Error: Could not connect to LLM.';
+      return 'Error: Could not connect to LLM. ${e.toString()}';
     }
   }
 
-  List<Content> _buildChatHistory(GraphSession session, ChatNode currentNode) {
-    final history = <Content>[];
+  String _extractResponseText(Map<String, dynamic> data) {
+    try {
+      return data['candidates'][0]['content']['parts'][0]['text'] ?? 'Error: No response text from LLM.';
+    } catch (e) {
+      print('Error extracting response text: $e');
+      return 'Error: Invalid response format from LLM.';
+    }
+  }
+
+  List<Map<String, dynamic>> _buildChatHistory(GraphSession session, ChatNode currentNode) {
+    final history = <Map<String, dynamic>>[];
     ChatNode? node = currentNode;
-    final nodeMap = { for (var n in session.nodes) n.id : n };
+    final nodeMap = {for (var n in session.nodes) n.id: n};
 
-    // Traverse up the tree from the current node to the root
+    // チャット履歴を構築（新しい形式に合わせる）
     while (node != null) {
-      // Add LLM output first (if available) as 'model' role
       if (node.llmOutput.isNotEmpty) {
-        history.insert(0, Content('model', [TextPart(node.llmOutput)]));
+        history.insert(0, {
+          'parts': [{'text': node.llmOutput}],
+          'role': 'model'
+        });
       }
-      // Add user input as 'user' role
-      history.insert(0, Content('user', [TextPart(node.userInput)]));
 
-      // Move to the parent node
+      history.insert(0, {
+        'parts': [{'text': node.userInput}],
+        'role': 'user'
+      });
+
       node = node.parentId != null ? nodeMap[node.parentId] : null;
     }
-
-    // The API expects alternating user/model roles, starting with user.
-    // If the first message is from the model (e.g., root node only has LLM output),
-    // we might need adjustment, but our structure ensures user input is always present first.
 
     return history;
   }

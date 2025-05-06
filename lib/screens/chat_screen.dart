@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
-import '../services/llm_service.dart'; // Import LlmService
-import '../services/secure_storage_service.dart'; // Import SecureStorageService
+import '../services/llm_service.dart';
+import '../services/secure_storage_service.dart';
 import '../widgets/chat_graph.dart';
-import 'settings_screen.dart'; // Import SettingsScreen
+import 'settings_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -14,167 +14,205 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  // TODO: Implement session loading/creation and persistence
   late GraphSession _currentSession;
-  ChatNode? _selectedNode; // Still useful for highlighting/focusing in graph
-  // final TextEditingController _textController = TextEditingController(); // REMOVED
-  late LlmService _llmService; // Add LlmService instance
-  bool _isGenerating = false; // Renamed isLoading for clarity
+  ChatNode? _selectedNode;
+  late LlmService _llmService;
+  bool _isGenerating = false;
+  String? _selectedModel;
+  List<String> _availableModels = [];
 
   @override
   void initState() {
     super.initState();
-    _llmService = LlmService(SecureStorageService()); // Initialize LlmService
+    _llmService = LlmService(SecureStorageService());
     _initializeScreen();
   }
 
   Future<void> _initializeScreen() async {
-    setState(() => _isGenerating = true); // Start loading
-    await _llmService.initialize(); // Initialize LLM service (loads API key)
+    setState(() => _isGenerating = true);
+    await _llmService.initialize();
 
-    // TODO: Implement session loading/creation and persistence
-    // Initialize with an empty session
-    if (!mounted) return; // Check if widget is still mounted after async gap
+    // 利用可能なモデルリストを取得
+    _availableModels = _llmService.getAvailableModels();
+    
+    // 現在選択されているモデルを取得
+    final selectedModel = await SecureStorageService().getSelectedModel();
+    _selectedModel = selectedModel ?? LlmService.defaultModel;
+
+    // セッションの初期化
+    if (!mounted) return;
     _currentSession = GraphSession(title: 'New Chat');
-    _selectedNode = null; // No node selected initially
+    _selectedNode = null;
 
-    // TODO: Implement loading existing sessions here. If a session is loaded,
-    // _currentSession.nodes will not be empty.
-
-    setState(() => _isGenerating = false); // Stop loading
+    setState(() => _isGenerating = false);
   }
 
-  // Handles node selection from the graph widget
   void _handleNodeSelected(ChatNode node) {
     setState(() {
       _selectedNode = node;
     });
-    // No need to clear text field here as it's inside the node widget
   }
 
-  // Handles starting the chat with the first message
   void _startChat(String userInput) async {
-     if (userInput.isEmpty || _isGenerating) {
+    if (userInput.isEmpty || _isGenerating) {
       return;
     }
     setState(() => _isGenerating = true);
 
-    // Create the very first node (root node)
     final firstNode = ChatNode(
-      parentId: null, // No parent for the root
+      parentId: null,
       userInput: userInput,
-      id: _currentSession.rootNodeId, // Use the session's rootNodeId
+      id: _currentSession.rootNodeId,
     );
 
-     // Add the node and select it
     setState(() {
       _currentSession.addNode(firstNode);
       _selectedNode = firstNode;
     });
 
-     // Call LLM API for the first node
     final llmResponse = await _llmService.generateResponse(_currentSession, firstNode);
 
-     // Update the node with the response
-     setState(() {
-       final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == firstNode.id);
-       if (nodeIndex != -1) {
-         _currentSession.nodes[nodeIndex].llmOutput = llmResponse;
-       }
-       _isGenerating = false;
-     });
-     // TODO: Persist session changes
+    setState(() {
+      final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == firstNode.id);
+      if (nodeIndex != -1) {
+        _currentSession.nodes[nodeIndex].llmOutput = llmResponse;
+      }
+      _isGenerating = false;
+    });
   }
 
-
-  // Toggles the collapsed state of a node and its descendants
   void _toggleNodeCollapse(ChatNode node) {
     setState(() {
       final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == node.id);
       if (nodeIndex != -1) {
         _currentSession.nodes[nodeIndex].isCollapsed = !_currentSession.nodes[nodeIndex].isCollapsed;
-        // Note: We are only toggling the flag here. The actual hiding/showing
-        // logic will be handled in ChatGraphWidget's _buildGraph method.
       }
-      // Force rebuild of GraphView using UniqueKey
     });
-     // TODO: Persist session changes (including collapse state)
   }
 
-
-  // Handles generating subsequent child nodes
   void _handleGenerateChild(ChatNode parentNode, String userInput) async {
     if (userInput.isEmpty || _isGenerating) {
-      return; // Do nothing if input is empty or already generating
+      return;
     }
 
     setState(() {
-      _isGenerating = true; // Start loading indicator
-      // _selectedNode = parentNode; // Keep parent selected initially? Or select new node? Let's select new.
+      _isGenerating = true;
     });
 
-    // Create the new node optimistically
     final newNode = ChatNode(
       parentId: parentNode.id,
       userInput: userInput,
     );
 
-    // Add the new node to the session state
     setState(() {
       _currentSession.addNode(newNode);
       final parentIndex = _currentSession.nodes.indexWhere((n) => n.id == parentNode.id);
       if (parentIndex != -1) {
         _currentSession.nodes[parentIndex].childrenIds.add(newNode.id);
       }
-      _selectedNode = newNode; // Select the newly created node
+      _selectedNode = newNode;
     });
 
-    // Call LLM API
     final llmResponse = await _llmService.generateResponse(_currentSession, newNode);
 
-    // Update the new node with the LLM response
     setState(() {
       final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == newNode.id);
       if (nodeIndex != -1) {
         _currentSession.nodes[nodeIndex].llmOutput = llmResponse;
       }
-      _isGenerating = false; // Stop loading indicator
+      _isGenerating = false;
     });
-
-    // TODO: Persist session changes
   }
 
+  Future<void> _handleModelChange(String? newModel) async {
+    if (newModel != null && newModel != _selectedModel) {
+      setState(() => _isGenerating = true);
+      
+      try {
+        await SecureStorageService().saveSelectedModel(newModel);
+        setState(() {
+          _selectedModel = newModel;
+        });
+        await _llmService.initialize();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Successfully switched to model: $newModel')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error changing model')),
+        );
+      } finally {
+        setState(() => _isGenerating = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Show loading indicator until initialization is complete
-    // Use a local variable to avoid accessing potentially uninitialized _currentSession
     bool isSessionInitialized = false;
     try {
-       // Check if _currentSession is accessible without throwing LateInitializationError
-       // This is a bit of a workaround; ideally use a FutureBuilder or similar pattern
-       if (_currentSession != null) isSessionInitialized = true;
+      if (_currentSession != null) isSessionInitialized = true;
     } catch (e) {
-       isSessionInitialized = false;
+      isSessionInitialized = false;
     }
 
-
-    if (_isGenerating && !isSessionInitialized) { // Show loading only during initial load
+    if (_isGenerating && !isSessionInitialized) {
       return Scaffold(
         appBar: AppBar(title: const Text('Loading...')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    // --- Build UI based on whether the chat has started ---
     return Scaffold(
       appBar: AppBar(
-        title: Text(isSessionInitialized ? _currentSession.title : "Chat"),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(isSessionInitialized ? _currentSession.title : "Chat"),
+            ),
+            if (_availableModels.isNotEmpty) ...[
+              const SizedBox(width: 16),
+              DropdownButton<String>(
+                value: _selectedModel,
+                items: _availableModels.map((String model) {
+                  return DropdownMenuItem<String>(
+                    value: model,
+                    child: Text(
+                      model,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  );
+                }).toList(),
+                onChanged: _handleModelChange,
+                underline: Container(), // AppBarに合わせて下線を削除
+                dropdownColor: Theme.of(context).colorScheme.surface,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onPrimary,
+                  fontSize: 14,
+                ),
+                iconEnabledColor: Theme.of(context).colorScheme.onPrimary,
+              ),
+            ],
+          ],
+        ),
         actions: [
-          if (_isGenerating && isSessionInitialized) // Show loading in AppBar
+          if (_isGenerating && isSessionInitialized)
             const Padding(
               padding: EdgeInsets.only(right: 16.0),
-              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ),
             ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -183,7 +221,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const SettingsScreen()),
               ).then((_) {
-                _llmService.initialize(); // Re-initialize on return
+                _llmService.initialize();
               });
             },
           ),
@@ -191,21 +229,18 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: isSessionInitialized
           ? (_currentSession.nodes.isEmpty
-              // --- Show Initial Input View ---
               ? _buildInitialInputView()
-              // --- Show Graph View ---
               : ChatGraphWidget(
                   session: _currentSession,
                   selectedNode: _selectedNode,
                   onGenerateChild: _handleGenerateChild,
                   onNodeSelected: _handleNodeSelected,
-                  onToggleCollapse: _toggleNodeCollapse, // Pass the toggle callback
+                  onToggleCollapse: _toggleNodeCollapse,
                 ))
           : const Center(child: Text("Initializing...")),
     );
   }
 
-  // --- Helper to build the initial input view ---
   Widget _buildInitialInputView() {
     final TextEditingController initialInputController = TextEditingController();
     return Center(

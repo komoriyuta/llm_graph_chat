@@ -31,12 +31,12 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: any
-  google_generative_ai: any
   flutter_secure_storage: ^9.2.4
   graphview: any
   path_provider: any
   uuid: any
   json_annotation: any
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:
