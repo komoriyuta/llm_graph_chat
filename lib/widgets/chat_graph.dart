@@ -1,9 +1,89 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
 import '../providers/theme_provider.dart';
+import '../utils/inline_math_syntax.dart';
+import 'package:markdown/markdown.dart' as md;
+
+class CodeBuilder extends MarkdownElementBuilder {
+  final TextStyle? style;
+  final bool isDarkMode;
+
+  CodeBuilder(this.style, {this.isDarkMode = false});
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final text = element.textContent;
+    return Container(
+      decoration: BoxDecoration(
+        color: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade100,
+        borderRadius: element.tag == 'code' ? BorderRadius.circular(4) : null,
+      ),
+      padding: element.tag == 'code' ? const EdgeInsets.symmetric(horizontal: 4, vertical: 2) : null,
+      child: Text(
+        text,
+        style: style?.copyWith(
+          fontFamily: 'monospace',
+          height: 1.5,
+        ),
+      ),
+    );
+  }
+}
+
+class MathBuilder extends MarkdownElementBuilder {
+  final TextStyle? style;
+  final bool isDarkMode;
+
+  MathBuilder(this.style, {this.isDarkMode = false});
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final text = element.textContent;
+    final isBlock = text.startsWith('\n') || text.endsWith('\n');
+    
+    try {
+      Widget mathWidget = Math.tex(
+        text.trim(),
+        textStyle: style?.copyWith(
+          fontSize: isBlock ? style!.fontSize! * 1.2 : style!.fontSize! * 1.1,
+          height: isBlock ? 1.8 : 1.5,
+        ),
+        textScaleFactor: isBlock ? 1.2 : 1.0,
+      );
+
+      if (isBlock) {
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: isDarkMode ? Colors.grey.shade800 : Colors.grey.shade300,
+            ),
+          ),
+          width: double.infinity,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: mathWidget,
+          ),
+        );
+      }
+
+      return mathWidget;
+    } catch (e) {
+      return Text(
+        text,
+        style: style?.copyWith(color: Colors.red),
+      );
+    }
+  }
+}
 
 class EdgePainter extends CustomPainter {
   final List<ChatNode> nodes;
@@ -41,7 +121,6 @@ class EdgePainter extends CustomPainter {
         final startPoint = Offset(start.dx + 100, start.dy + 100);
         final endPoint = Offset(end.dx + 100, end.dy);
         
-        // ベジェ曲線の制御点を最適化
         final dx = (endPoint.dx - startPoint.dx).abs();
         final dy = endPoint.dy - startPoint.dy;
         
@@ -108,19 +187,12 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   bool _isNodeHovered = false;
   final TransformationController _transformationController = TransformationController();
   
-  // 操作モード管理
   bool _isDragMode = false;
   String? _dragTargetNodeId;
-  
-  // レイアウト管理
   bool _needsLayout = true;
-
-  // スクロールコントローラー
   final Map<String, ScrollController> _userInputScrollControllers = {};
   final Map<String, ScrollController> _llmOutputScrollControllers = {};
-
-  // ドラッグ操作設定
-  bool _enableGridSnap = false;  // グリッドスナップを無効化
+  bool _enableGridSnap = false;
 
   @override
   void initState() {
@@ -134,7 +206,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     super.didUpdateWidget(oldWidget);
     if (widget.session.nodes.length != oldWidget.session.nodes.length) {
       _buildChatNodeMap();
-      _calculateLayout();  // 新しいノードが追加された時に自動レイアウト
+      _calculateLayout();
     }
 
     if (widget.selectedNode != null && widget.selectedNode!.id != _focusedNodeId) {
@@ -156,7 +228,6 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     _nodeInputController.dispose();
     _nodeInputFocusNode.dispose();
     _transformationController.dispose();
-    // スクロールコントローラーの破棄
     _userInputScrollControllers.values.forEach((controller) => controller.dispose());
     _llmOutputScrollControllers.values.forEach((controller) => controller.dispose());
     super.dispose();
@@ -171,28 +242,74 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   }
 
   void _calculateLayout() {
-    // ルートノードを水平方向に配置
     final rootNodes = _getRootNodes();
-    double x = 100;
+    final nodeWidth = context.read<ThemeProvider>().nodeWidth;
+    final nodeHeight = context.read<ThemeProvider>().nodeHeight;
+    final horizontalSpacing = nodeWidth + 100.0;
+    final verticalSpacing = nodeHeight + 50.0;
     
+    double startX = 100;
     for (final node in rootNodes) {
-      _layoutNode(node, x, 100);
-      x += 250;
+      _layoutNode(
+        node,
+        startX,
+        100,
+        horizontalSpacing,
+        verticalSpacing,
+        <String>{},
+      );
+      final subtreeWidth = _calculateSubtreeWidth(node);
+      startX += subtreeWidth * horizontalSpacing;
     }
     _needsLayout = false;
   }
 
-  void _layoutNode(ChatNode node, double x, double y) {
+  int _calculateSubtreeWidth(ChatNode node) {
+    if (node.isCollapsed || node.childrenIds.isEmpty) {
+      return 1;
+    }
+    int width = 0;
+    for (final childId in node.childrenIds) {
+      if (_chatNodeMap.containsKey(childId)) {
+        width += _calculateSubtreeWidth(_chatNodeMap[childId]!);
+      }
+    }
+    return math.max(1, width);
+  }
+
+  void _layoutNode(
+    ChatNode node,
+    double x,
+    double y,
+    double horizontalSpacing,
+    double verticalSpacing,
+    Set<String> placedNodes,
+  ) {
+    if (placedNodes.contains(node.id)) {
+      return;
+    }
+    
     setState(() {
       _nodePositions[node.id] = Offset(x, y);
     });
+    placedNodes.add(node.id);
     
     if (!node.isCollapsed) {
-      double childY = y + 150;
+      double childX = x;
+      double childY = y + verticalSpacing;
+      
       for (final childId in node.childrenIds) {
         if (_chatNodeMap.containsKey(childId)) {
-          _layoutNode(_chatNodeMap[childId]!, x + 50, childY);
-          childY += 150;
+          final child = _chatNodeMap[childId]!;
+          _layoutNode(
+            child,
+            childX,
+            childY,
+            horizontalSpacing,
+            verticalSpacing,
+            placedNodes,
+          );
+          childX += horizontalSpacing;
         }
       }
     }
@@ -210,6 +327,262 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       _isDragMode = false;
       _dragTargetNodeId = null;
     });
+  }
+
+  Widget _buildMarkdownContent(String content, TextStyle style, bool isDarkMode) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MarkdownBody(
+          data: content,
+          styleSheet: MarkdownStyleSheet(
+            p: style,
+            code: style.copyWith(
+              fontFamily: 'monospace',
+              backgroundColor: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade100,
+            ),
+            codeblockDecoration: BoxDecoration(
+              color: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: isDarkMode ? Colors.grey.shade800 : Colors.grey.shade300,
+              ),
+            ),
+            blockquoteDecoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(
+                  color: isDarkMode ? Colors.grey.shade700 : Colors.grey.shade400,
+                  width: 4,
+                ),
+              ),
+            ),
+          ),
+          builders: {
+            'math': MathBuilder(
+              style.copyWith(
+                fontSize: style.fontSize! * 1.1,
+                height: 1.8,
+                letterSpacing: 0.5,
+                leadingDistribution: TextLeadingDistribution.even,
+              ),
+              isDarkMode: isDarkMode,
+            ),
+            'code': CodeBuilder(
+              style.copyWith(
+                fontSize: style.fontSize,
+                height: 1.5,
+              ),
+              isDarkMode: isDarkMode,
+            ),
+          },
+          extensionSet: md.ExtensionSet(
+            [...md.ExtensionSet.gitHubFlavored.blockSyntaxes, const BlockMathSyntax()],
+            [
+              InlineMathSyntax(),
+              ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+            ],
+          ),
+          selectable: true,
+          softLineBreak: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNodeContent(ChatNode node, bool isSelected, bool canCollapse) {
+    final isDarkMode = context.watch<ThemeProvider>().isDarkMode;
+    final backgroundColor = isDarkMode
+        ? (isSelected ? Colors.purple.shade900 : Colors.grey.shade900)
+        : (isSelected ? Colors.lightBlue[50] : Colors.grey[100]);
+    final borderColor = isDarkMode
+        ? (isSelected ? Colors.purple : Colors.grey.shade700)
+        : (isSelected ? Colors.blue : Colors.grey.shade400);
+    final textColor = isDarkMode ? Colors.grey[200] : Colors.grey[800];
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isNodeHovered = true),
+      onExit: (_) => setState(() => _isNodeHovered = false),
+      child: GestureDetector(
+        onTap: () {
+          widget.onNodeSelected(node);
+          setState(() { _focusedNodeId = node.id; });
+        },
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: borderColor,
+              width: isSelected ? 1.5 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: isDarkMode
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.grey.withOpacity(0.2),
+                spreadRadius: 1,
+                blurRadius: 2,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IntrinsicWidth(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (canCollapse)
+                      InkWell(
+                        onTap: () => widget.onToggleCollapse(node),
+                        child: Icon(
+                          node.isCollapsed ? Icons.arrow_right : Icons.arrow_drop_down,
+                          size: 20,
+                          color: textColor,
+                        ),
+                      )
+                    else
+                      const SizedBox(width: 20),
+                    
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: context.watch<ThemeProvider>().nodeWidth - 60,
+                        ),
+                        child: Text(
+                          "You: ${node.userInput}",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: textColor,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!node.isCollapsed && node.llmOutput.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.only(left: 24),
+                  width: context.watch<ThemeProvider>().nodeWidth - 16,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "LLM:",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: textColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: context.watch<ThemeProvider>().nodeHeight - 100,
+                        ),
+                        child: ScrollConfiguration(
+                          behavior: ScrollConfiguration.of(context).copyWith(
+                            scrollbars: true,
+                            overscroll: false,
+                            physics: const ClampingScrollPhysics(),
+                          ),
+                          child: Builder(
+                            builder: (context) {
+                              if (!_llmOutputScrollControllers.containsKey(node.id)) {
+                                _llmOutputScrollControllers[node.id] = ScrollController();
+                              }
+                              return RawScrollbar(
+                                thumbVisibility: true,
+                                trackVisibility: true,
+                                thumbColor: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400,
+                                trackColor: isDarkMode ? Colors.grey.shade800 : Colors.grey.shade200,
+                                thickness: 8,
+                                radius: const Radius.circular(4),
+                                controller: _llmOutputScrollControllers[node.id],
+                                child: SingleChildScrollView(
+                                  controller: _llmOutputScrollControllers[node.id],
+                                  child: _buildMarkdownContent(
+                                    node.llmOutput,
+                                    TextStyle(
+                                      fontSize: 13,
+                                      color: textColor,
+                                      height: 1.5,
+                                    ),
+                                    isDarkMode,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (isSelected && !node.isCollapsed) ...[
+                const SizedBox(height: 8),
+                const Divider(height: 8, thickness: 0.5),
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: context.watch<ThemeProvider>().nodeWidth - 16,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: SizedBox(
+                          height: 40,
+                          child: TextField(
+                            controller: _nodeInputController,
+                            focusNode: _nodeInputFocusNode,
+                            style: const TextStyle(fontSize: 13),
+                            decoration: const InputDecoration(
+                              hintText: 'Generate child...',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.all(Radius.circular(4)),
+                                borderSide: BorderSide(width: 0.5),
+                              ),
+                            ),
+                            onSubmitted: (value) => _generateChild(node, value),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: ElevatedButton(
+                          onPressed: () => _generateChild(node, _nodeInputController.text),
+                          style: ElevatedButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(40, 40),
+                          ),
+                          child: const Icon(Icons.send, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -242,7 +615,10 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 isDarkMode: context.watch<ThemeProvider>().isDarkMode,
               ),
             ),
-            ...widget.session.nodes.map((node) => _buildNodeWidget(node)),
+            ...widget.session.nodes.map((node) {
+              final isDragging = _isDragMode && _dragTargetNodeId == node.id;
+              return _buildNodeWidget(node);
+            }),
           ],
         ),
       ),
@@ -278,12 +654,10 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
           setState(() {
             final newPosition = _nodePositions[node.id]! + details.delta;
             if (_enableGridSnap) {
-              // グリッドスナップが有効な場合のみ適用
               final snappedX = (newPosition.dx / 20).round() * 20.0;
               final snappedY = (newPosition.dy / 20).round() * 20.0;
               _nodePositions[node.id] = Offset(snappedX, snappedY);
             } else {
-              // 自由な移動
               _nodePositions[node.id] = newPosition;
             }
           });
@@ -295,228 +669,6 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
               : Matrix4.identity(),
           child: _buildNodeContent(node, isSelected, canCollapse),
         ),
-      ),
-    );
-  }
-
-  Widget _buildNodeContent(ChatNode node, bool isSelected, bool canCollapse) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isNodeHovered = true),
-      onExit: (_) => setState(() => _isNodeHovered = false),
-      child: GestureDetector(
-      onTap: () {
-        widget.onNodeSelected(node);
-        setState(() { _focusedNodeId = node.id; });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && widget.selectedNode?.id == node.id) {
-            FocusScope.of(context).requestFocus(_nodeInputFocusNode);
-          }
-        });
-        _nodeInputController.clear();
-      },
-      child: Consumer<ThemeProvider>(
-        builder: (context, themeProvider, child) {
-          final isDarkMode = themeProvider.isDarkMode;
-          final backgroundColor = isDarkMode
-              ? (isSelected ? Colors.purple.shade900 : Colors.grey.shade900)
-              : (isSelected ? Colors.lightBlue[50] : Colors.grey[100]);
-          final borderColor = isDarkMode
-              ? (isSelected ? Colors.purple : Colors.grey.shade700)
-              : (isSelected ? Colors.blue : Colors.grey.shade400);
-          final textColor = isDarkMode ? Colors.grey[200] : Colors.grey[800];
-          final shadowColor = isDarkMode
-              ? Colors.black.withOpacity(0.3)
-              : Colors.grey.withOpacity(0.2);
-
-          return Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: borderColor,
-                width: isSelected ? 1.5 : 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: shadowColor,
-                  spreadRadius: 1,
-                  blurRadius: 2,
-                  offset: const Offset(0, 1),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 4.0,
-                  children: [
-                    if (canCollapse)
-                      InkWell(
-                        onTap: () => widget.onToggleCollapse(node),
-                        child: Icon(
-                          node.isCollapsed ? Icons.arrow_right : Icons.arrow_drop_down,
-                          size: 20,
-                          color: textColor,
-                        ),
-                      )
-                    else
-                      const SizedBox(width: 20),
-
-                    Container(
-                      constraints: BoxConstraints(
-                        maxWidth: context.watch<ThemeProvider>().nodeWidth,
-                        maxHeight: context.watch<ThemeProvider>().nodeHeight,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Builder(
-                        builder: (context) {
-                          if (!_userInputScrollControllers.containsKey(node.id)) {
-                            _userInputScrollControllers[node.id] = ScrollController();
-                          }
-                          final scrollController = _userInputScrollControllers[node.id]!;
-                          return Scrollbar(
-                            thumbVisibility: true,
-                            controller: scrollController,
-                            child: SingleChildScrollView(
-                              controller: scrollController,
-                              child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: Text(
-                                  "You: ${node.userInput}",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: textColor,
-                                  ),
-                                  softWrap: true,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-
-                if (!node.isCollapsed && node.llmOutput.isNotEmpty)
-                Padding(
-                   padding: const EdgeInsets.only(left: 24.0),
-                   child: Container(
-                     constraints: BoxConstraints(
-                       maxWidth: context.watch<ThemeProvider>().nodeWidth,
-                       maxHeight: context.watch<ThemeProvider>().nodeHeight,
-                     ),
-                     decoration: BoxDecoration(
-                       border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                       borderRadius: BorderRadius.circular(4),
-                     ),
-                     child: Builder(
-                        builder: (context) {
-                          if (!_llmOutputScrollControllers.containsKey(node.id)) {
-                            _llmOutputScrollControllers[node.id] = ScrollController();
-                          }
-                          final scrollController = _llmOutputScrollControllers[node.id]!;
-                          return Scrollbar(
-                            thumbVisibility: true,
-                            controller: scrollController,
-                            child: SingleChildScrollView(
-                              controller: scrollController,
-                              child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      "LLM:",
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: textColor,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    MarkdownBody(
-                                      data: node.llmOutput,
-                                      styleSheet: MarkdownStyleSheet(
-                                        p: TextStyle(fontSize: 13, color: textColor),
-                                        code: TextStyle(
-                                          fontSize: 12,
-                                          color: textColor,
-                                          backgroundColor: isDarkMode
-                                              ? Colors.grey.shade900
-                                              : Colors.grey.shade200,
-                                        ),
-                                        codeblockDecoration: BoxDecoration(
-                                          color: isDarkMode
-                                              ? Colors.grey.shade900
-                                              : Colors.grey.shade200,
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-
-                if (isSelected && !node.isCollapsed) ...[
-                  const SizedBox(height: 8),
-                  const Divider(height: 8, thickness: 0.5),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 180,
-                          height: 40,
-                          child: TextField(
-                            controller: _nodeInputController,
-                            focusNode: _nodeInputFocusNode,
-                            style: const TextStyle(fontSize: 13),
-                            decoration: const InputDecoration(
-                              hintText: 'Generate child...',
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.all(Radius.circular(4)),
-                                borderSide: BorderSide(width: 0.5),
-                              ),
-                            ),
-                            onSubmitted: (value) => _generateChild(node, value),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        ElevatedButton(
-                          onPressed: () => _generateChild(node, _nodeInputController.text),
-                          child: const Icon(Icons.send, size: 16),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            minimumSize: const Size(40, 40),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          );
-        },
-      ),
       ),
     );
   }
