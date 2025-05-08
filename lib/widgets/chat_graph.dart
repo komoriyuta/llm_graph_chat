@@ -9,32 +9,50 @@ class EdgePainter extends CustomPainter {
   final List<ChatNode> nodes;
   final Map<String, Offset> nodePositions;
   final Map<String, ChatNode> chatNodeMap;
+  final ChatNode? selectedNode;
+  final bool isDarkMode;
 
   EdgePainter({
     required this.nodes,
     required this.nodePositions,
     required this.chatNodeMap,
+    required this.selectedNode,
+    required this.isDarkMode,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.grey
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-
     for (final node in nodes) {
-      if (node.parentId != null && 
-          nodePositions.containsKey(node.id) && 
+      if (node.parentId != null &&
+          nodePositions.containsKey(node.id) &&
           nodePositions.containsKey(node.parentId)) {
+        final isSelected = selectedNode?.id == node.id || selectedNode?.id == node.parentId;
+        
+        final paint = Paint()
+          ..color = isSelected
+              ? (isDarkMode ? Colors.purple : Colors.blue)
+              : (isDarkMode ? Colors.grey.shade700 : Colors.grey.shade400)
+          ..strokeWidth = isSelected ? 2.5 : 1.0
+          ..style = PaintingStyle.stroke;
+
         final start = nodePositions[node.parentId]!;
         final end = nodePositions[node.id]!;
         
         final startPoint = Offset(start.dx + 100, start.dy + 100);
         final endPoint = Offset(end.dx + 100, end.dy);
         
-        final controlPoint1 = Offset(startPoint.dx, startPoint.dy + (endPoint.dy - startPoint.dy) / 3);
-        final controlPoint2 = Offset(endPoint.dx, startPoint.dy + (endPoint.dy - startPoint.dy) * 2 / 3);
+        // ベジェ曲線の制御点を最適化
+        final dx = (endPoint.dx - startPoint.dx).abs();
+        final dy = endPoint.dy - startPoint.dy;
+        
+        final controlPoint1 = Offset(
+          startPoint.dx + dx * 0.1,
+          startPoint.dy + dy * 0.2,
+        );
+        final controlPoint2 = Offset(
+          endPoint.dx - dx * 0.1,
+          startPoint.dy + dy * 0.8,
+        );
         
         final path = Path()
           ..moveTo(startPoint.dx, startPoint.dy)
@@ -50,7 +68,11 @@ class EdgePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant EdgePainter oldDelegate) {
+    return oldDelegate.nodes != nodes ||
+           oldDelegate.selectedNode != selectedNode ||
+           oldDelegate.isDarkMode != isDarkMode;
+  }
 }
 
 typedef GenerateChildCallback = void Function(ChatNode parentNode, String userInput);
@@ -85,11 +107,26 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   late Map<String, ChatNode> _chatNodeMap;
   bool _isNodeHovered = false;
   final TransformationController _transformationController = TransformationController();
+  
+  // 操作モード管理
+  bool _isDragMode = false;
+  String? _dragTargetNodeId;
+  
+  // レイアウト管理
+  bool _needsLayout = true;
+
+  // スクロールコントローラー
+  final Map<String, ScrollController> _userInputScrollControllers = {};
+  final Map<String, ScrollController> _llmOutputScrollControllers = {};
+
+  // ドラッグ操作設定
+  bool _enableGridSnap = false;  // グリッドスナップを無効化
 
   @override
   void initState() {
     super.initState();
     _buildChatNodeMap();
+    _calculateLayout();
   }
 
   @override
@@ -97,6 +134,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     super.didUpdateWidget(oldWidget);
     if (widget.session.nodes.length != oldWidget.session.nodes.length) {
       _buildChatNodeMap();
+      _calculateLayout();  // 新しいノードが追加された時に自動レイアウト
     }
 
     if (widget.selectedNode != null && widget.selectedNode!.id != _focusedNodeId) {
@@ -118,11 +156,60 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     _nodeInputController.dispose();
     _nodeInputFocusNode.dispose();
     _transformationController.dispose();
+    // スクロールコントローラーの破棄
+    _userInputScrollControllers.values.forEach((controller) => controller.dispose());
+    _llmOutputScrollControllers.values.forEach((controller) => controller.dispose());
     super.dispose();
   }
 
   void _buildChatNodeMap() {
     _chatNodeMap = {for (var node in widget.session.nodes) node.id: node};
+  }
+
+  List<ChatNode> _getRootNodes() {
+    return widget.session.nodes.where((node) => node.parentId == null).toList();
+  }
+
+  void _calculateLayout() {
+    // ルートノードを水平方向に配置
+    final rootNodes = _getRootNodes();
+    double x = 100;
+    
+    for (final node in rootNodes) {
+      _layoutNode(node, x, 100);
+      x += 250;
+    }
+    _needsLayout = false;
+  }
+
+  void _layoutNode(ChatNode node, double x, double y) {
+    setState(() {
+      _nodePositions[node.id] = Offset(x, y);
+    });
+    
+    if (!node.isCollapsed) {
+      double childY = y + 150;
+      for (final childId in node.childrenIds) {
+        if (_chatNodeMap.containsKey(childId)) {
+          _layoutNode(_chatNodeMap[childId]!, x + 50, childY);
+          childY += 150;
+        }
+      }
+    }
+  }
+
+  void _handleNodeLongPress(ChatNode node) {
+    setState(() {
+      _isDragMode = true;
+      _dragTargetNodeId = node.id;
+    });
+  }
+
+  void _handleDragEnd() {
+    setState(() {
+      _isDragMode = false;
+      _dragTargetNodeId = null;
+    });
   }
 
   @override
@@ -151,6 +238,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 nodes: widget.session.nodes,
                 nodePositions: _nodePositions,
                 chatNodeMap: _chatNodeMap,
+                selectedNode: widget.selectedNode,
+                isDarkMode: context.watch<ThemeProvider>().isDarkMode,
               ),
             ),
             ...widget.session.nodes.map((node) => _buildNodeWidget(node)),
@@ -163,28 +252,49 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   Widget _buildNodeWidget(ChatNode node) {
     bool isSelected = widget.selectedNode?.id == node.id;
     bool canCollapse = node.childrenIds.isNotEmpty;
+    bool isDragging = _isDragMode && _dragTargetNodeId == node.id;
     
     if (!_nodePositions.containsKey(node.id)) {
-      _nodePositions[node.id] = const Offset(1000, 1000);
+      _nodePositions[node.id] = const Offset(100, 100);
     }
 
     return Positioned(
       left: _nodePositions[node.id]!.dx,
       top: _nodePositions[node.id]!.dy,
-      child: Draggable(
-        feedback: Material(
-          child: _buildNodeContent(node, isSelected, canCollapse),
-        ),
-        childWhenDragging: Opacity(
-          opacity: 0.5,
-          child: _buildNodeContent(node, isSelected, canCollapse),
-        ),
-        onDragEnd: (details) {
-          setState(() {
-            _nodePositions[node.id] = details.offset;
-          });
+      child: GestureDetector(
+        onLongPressStart: (_) => _handleNodeLongPress(node),
+        onLongPressEnd: (_) => _handleDragEnd(),
+        onPanStart: (details) {
+          if (isSelected) {
+            _handleNodeLongPress(node);
+          }
         },
-        child: _buildNodeContent(node, isSelected, canCollapse),
+        onPanEnd: (_) {
+          if (isSelected) {
+            _handleDragEnd();
+          }
+        },
+        onPanUpdate: (isDragging || isSelected) ? (details) {
+          setState(() {
+            final newPosition = _nodePositions[node.id]! + details.delta;
+            if (_enableGridSnap) {
+              // グリッドスナップが有効な場合のみ適用
+              final snappedX = (newPosition.dx / 20).round() * 20.0;
+              final snappedY = (newPosition.dy / 20).round() * 20.0;
+              _nodePositions[node.id] = Offset(snappedX, snappedY);
+            } else {
+              // 自由な移動
+              _nodePositions[node.id] = newPosition;
+            }
+          });
+        } : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          transform: isDragging
+              ? (Matrix4.identity()..translate(0.0, -5.0))
+              : Matrix4.identity(),
+          child: _buildNodeContent(node, isSelected, canCollapse),
+        ),
       ),
     );
   }
@@ -265,22 +375,32 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                         border: Border.all(color: Colors.grey.withOpacity(0.2)),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Scrollbar(
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Text(
-                              "You: ${node.userInput}",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: textColor,
+                      child: Builder(
+                        builder: (context) {
+                          if (!_userInputScrollControllers.containsKey(node.id)) {
+                            _userInputScrollControllers[node.id] = ScrollController();
+                          }
+                          final scrollController = _userInputScrollControllers[node.id]!;
+                          return Scrollbar(
+                            thumbVisibility: true,
+                            controller: scrollController,
+                            child: SingleChildScrollView(
+                              controller: scrollController,
+                              child: Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  "You: ${node.userInput}",
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: textColor,
+                                  ),
+                                  softWrap: true,
+                                ),
                               ),
-                              softWrap: true,
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -289,56 +409,66 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
 
                 if (!node.isCollapsed && node.llmOutput.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(left: 24.0),
-                  child: Container(
-                    constraints: BoxConstraints(
-                      maxWidth: context.watch<ThemeProvider>().nodeWidth,
-                      maxHeight: context.watch<ThemeProvider>().nodeHeight,
-                    ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Scrollbar(
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "LLM:",
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: textColor,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                MarkdownBody(
-                                  data: node.llmOutput,
-                                  styleSheet: MarkdownStyleSheet(
-                                    p: TextStyle(fontSize: 13, color: textColor),
-                                    code: TextStyle(
-                                      fontSize: 12,
-                                      color: textColor,
-                                      backgroundColor: isDarkMode
-                                          ? Colors.grey.shade900
-                                          : Colors.grey.shade200,
+                   padding: const EdgeInsets.only(left: 24.0),
+                   child: Container(
+                     constraints: BoxConstraints(
+                       maxWidth: context.watch<ThemeProvider>().nodeWidth,
+                       maxHeight: context.watch<ThemeProvider>().nodeHeight,
+                     ),
+                     decoration: BoxDecoration(
+                       border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                       borderRadius: BorderRadius.circular(4),
+                     ),
+                     child: Builder(
+                        builder: (context) {
+                          if (!_llmOutputScrollControllers.containsKey(node.id)) {
+                            _llmOutputScrollControllers[node.id] = ScrollController();
+                          }
+                          final scrollController = _llmOutputScrollControllers[node.id]!;
+                          return Scrollbar(
+                            thumbVisibility: true,
+                            controller: scrollController,
+                            child: SingleChildScrollView(
+                              controller: scrollController,
+                              child: Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "LLM:",
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: textColor,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                    codeblockDecoration: BoxDecoration(
-                                      color: isDarkMode
-                                          ? Colors.grey.shade900
-                                          : Colors.grey.shade200,
-                                      borderRadius: BorderRadius.circular(4),
+                                    const SizedBox(height: 4),
+                                    MarkdownBody(
+                                      data: node.llmOutput,
+                                      styleSheet: MarkdownStyleSheet(
+                                        p: TextStyle(fontSize: 13, color: textColor),
+                                        code: TextStyle(
+                                          fontSize: 12,
+                                          color: textColor,
+                                          backgroundColor: isDarkMode
+                                              ? Colors.grey.shade900
+                                              : Colors.grey.shade200,
+                                        ),
+                                        codeblockDecoration: BoxDecoration(
+                                          color: isDarkMode
+                                              ? Colors.grey.shade900
+                                              : Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                      ),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ),
