@@ -40,8 +40,8 @@ dependencies:
   uuid: ^4.3.3
   json_annotation: ^4.8.1
   http: ^1.2.0
-  flutter_markdown: ^0.6.20
-  flutter_math_fork: ^0.7.2
+  flutter_markdown: any
+  flutter_math_fork: any
 
 dev_dependencies:
   flutter_test:
