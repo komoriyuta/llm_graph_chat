@@ -11,15 +11,17 @@ class LlmService {
   static const List<String> availableModels = [
     'gemini-2.5-pro',
     'gemini-2.5-flash',
+    'gemini-2.5-flash-lite-preview-06-17',
     'gemini-2.0-flash-001',
     'gemini-2.0-flash-lite-001',
     'gemini-1.5-pro-002',
     'gemini-1.5-flash-002',
     'gemini-1.5-flash-8b-001',
+
   ];
 
   // デフォルトモデル
-  static const String defaultModel = 'gemini-2.0-flash';
+  static const String defaultModel = 'gemini-2.5-flash-lite-preview-06-17';
 
   final SecureStorageService _secureStorageService;
   String? _apiKey;
