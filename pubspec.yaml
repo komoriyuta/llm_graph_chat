@@ -41,7 +41,7 @@ dependencies:
   json_annotation: ^4.8.1
   http: ^1.2.0
   flutter_markdown: any
-  flutter_math_fork: any
+  
 
 dev_dependencies:
   flutter_test:

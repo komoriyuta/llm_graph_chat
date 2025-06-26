@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
 import '../providers/theme_provider.dart';
-import '../utils/inline_math_syntax.dart';
+
 import 'package:markdown/markdown.dart' as md;
 
 class CodeBuilder extends MarkdownElementBuilder {
@@ -35,55 +34,7 @@ class CodeBuilder extends MarkdownElementBuilder {
   }
 }
 
-class MathBuilder extends MarkdownElementBuilder {
-  final TextStyle? style;
-  final bool isDarkMode;
 
-  MathBuilder(this.style, {this.isDarkMode = false});
-
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final text = element.textContent;
-    final isBlock = text.startsWith('\n') || text.endsWith('\n');
-    
-    try {
-      Widget mathWidget = Math.tex(
-        text.trim(),
-        textStyle: style?.copyWith(
-          fontSize: isBlock ? style!.fontSize! * 1.2 : style!.fontSize! * 1.1,
-          height: isBlock ? 1.8 : 1.5,
-        ),
-        textScaleFactor: isBlock ? 1.2 : 1.0,
-      );
-
-      if (isBlock) {
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(
-              color: isDarkMode ? Colors.grey.shade800 : Colors.grey.shade300,
-            ),
-          ),
-          width: double.infinity,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: mathWidget,
-          ),
-        );
-      }
-
-      return mathWidget;
-    } catch (e) {
-      return Text(
-        text,
-        style: style?.copyWith(color: Colors.red),
-      );
-    }
-  }
-}
 
 class EdgePainter extends CustomPainter {
   final List<ChatNode> nodes;
@@ -359,15 +310,6 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             ),
           ),
           builders: {
-            'math': MathBuilder(
-              style.copyWith(
-                fontSize: style.fontSize! * 1.1,
-                height: 1.8,
-                letterSpacing: 0.5,
-                leadingDistribution: TextLeadingDistribution.even,
-              ),
-              isDarkMode: isDarkMode,
-            ),
             'code': CodeBuilder(
               style.copyWith(
                 fontSize: style.fontSize,
@@ -376,13 +318,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
               isDarkMode: isDarkMode,
             ),
           },
-          extensionSet: md.ExtensionSet(
-            [...md.ExtensionSet.gitHubFlavored.blockSyntaxes, const BlockMathSyntax()],
-            [
-              InlineMathSyntax(),
-              ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-            ],
-          ),
+          extensionSet: md.ExtensionSet.gitHubFlavored,
           selectable: true,
           softLineBreak: true,
         ),
