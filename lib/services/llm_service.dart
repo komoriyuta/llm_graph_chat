@@ -9,7 +9,13 @@ class LlmService {
   
   // 利用可能なモデルのリスト
   static const List<String> availableModels = [
-    'gemini-2.5-flash-preview-04-17','gemini-2.5-pro-preview-03-25','gemini-2.0-flash','gemini-2.0-flash-lite','gemini-1.5-flash','gemini-1.5-flash-8b','gemini-1.5-pro'
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash-001',
+    'gemini-2.0-flash-lite-001',
+    'gemini-1.5-pro-002',
+    'gemini-1.5-flash-002',
+    'gemini-1.5-flash-8b-001',
   ];
 
   // デフォルトモデル
