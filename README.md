@@ -3,6 +3,8 @@
 FlutterベースのLLMチャットアプリケーションで、チャット履歴をグラフ構造で可視化します。
 https://komoriyuta.github.io/llm_graph_chat/
 
+![Icon](/web/icons/Icon-192.png)
+
 ![Application Screenshot](image.png)
 
 ## セットアップ
