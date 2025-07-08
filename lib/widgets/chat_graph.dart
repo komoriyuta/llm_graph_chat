@@ -107,6 +107,7 @@ class EdgePainter extends CustomPainter {
 
 typedef GenerateChildCallback = void Function(ChatNode parentNode, String userInput);
 typedef NodeSelectedCallback = void Function(ChatNode node);
+typedef RegenerateCallback = void Function(ChatNode node);
 typedef ToggleCollapseCallback = void Function(ChatNode node);
 
 class ChatGraphWidget extends StatefulWidget {
@@ -114,6 +115,7 @@ class ChatGraphWidget extends StatefulWidget {
   final GenerateChildCallback onGenerateChild;
   final NodeSelectedCallback onNodeSelected;
   final ToggleCollapseCallback onToggleCollapse;
+  final RegenerateCallback onRegenerate;
   final ChatNode? selectedNode;
 
   const ChatGraphWidget({
@@ -122,6 +124,7 @@ class ChatGraphWidget extends StatefulWidget {
     required this.onGenerateChild,
     required this.onNodeSelected,
     required this.onToggleCollapse,
+    required this.onRegenerate,
     this.selectedNode,
   });
 
@@ -402,6 +405,16 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 4),
+                    if (isSelected)
+                      SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: IconButton(
+                          icon: const Icon(Icons.refresh, size: 16),
+                          onPressed: () => widget.onRegenerate(node),
+                        ),
+                      ),
                   ],
                 ),
               ),

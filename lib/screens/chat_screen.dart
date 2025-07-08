@@ -222,6 +222,23 @@ class _ChatScreenState extends State<ChatScreen> {
     await _saveCurrentSession();
   }
 
+  void _handleRegenerate(ChatNode node) async {
+    if (_isGenerating) return;
+
+    setState(() => _isGenerating = true);
+
+    final llmResponse = await _llmService.generateResponse(_currentSession, node);
+
+    setState(() {
+      final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == node.id);
+      if (nodeIndex != -1) {
+        _currentSession.nodes[nodeIndex].llmOutput = llmResponse;
+      }
+      _isGenerating = false;
+    });
+    await _saveCurrentSession();
+  }
+
   Future<void> _handleModelChange(String? newModel) async {
     if (newModel != null && newModel != _selectedModel) {
       setState(() => _isGenerating = true);
@@ -348,6 +365,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   onGenerateChild: _handleGenerateChild,
                   onNodeSelected: _handleNodeSelected,
                   onToggleCollapse: _toggleNodeCollapse,
+                  onRegenerate: _handleRegenerate,
                 ))
           : const Center(child: Text("Initializing...")),
     );
