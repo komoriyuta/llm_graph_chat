@@ -50,6 +50,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final sessions = await _storageService.loadSessions();
     if (!mounted) return;
 
+    // セッションを更新日の新しい順にソート
+    sessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
     setState(() {
       _allSessions = sessions;
       if (sessions.isNotEmpty) {
@@ -70,7 +73,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _createNewSession() {
     final newSession = GraphSession(title: 'New Chat');
     setState(() {
-      _allSessions.add(newSession);
+      _allSessions.insert(0, newSession);
       _currentSession = newSession;
       _selectedNode = null;
     });
@@ -129,6 +132,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (_currentSession.id == session.id) {
           _currentSession = updatedSession;
         }
+        _allSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       });
       await _storageService.updateSession(updatedSession);
     }
