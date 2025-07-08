@@ -406,15 +406,14 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                       ),
                     ),
                     const SizedBox(width: 4),
-                    if (isSelected)
-                      SizedBox(
-                        width: 30,
-                        height: 30,
-                        child: IconButton(
-                          icon: const Icon(Icons.refresh, size: 16),
-                          onPressed: () => widget.onRegenerate(node),
-                        ),
+                    SizedBox(
+                      width: 30,
+                      height: 30,
+                      child: IconButton(
+                        icon: const Icon(Icons.refresh, size: 16),
+                        onPressed: () => widget.onRegenerate(node),
                       ),
+                    ),
                   ],
                 ),
               ),
