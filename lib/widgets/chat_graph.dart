@@ -197,10 +197,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
 
   void _calculateLayout() {
     final rootNodes = _getRootNodes();
-    final nodeWidth = context.read<ThemeProvider>().nodeWidth;
-    final nodeHeight = context.read<ThemeProvider>().nodeHeight;
-    final horizontalSpacing = nodeWidth + 100.0;
-    final verticalSpacing = nodeHeight + 50.0;
+    final horizontalSpacing = 300.0 + 100.0; // Default node width + spacing
+    final verticalSpacing = 200.0 + 50.0; // Default node height + spacing
     
     double startX = 100;
     for (final node in rootNodes) {
@@ -391,7 +389,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                       fit: FlexFit.loose,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxWidth: context.watch<ThemeProvider>().nodeWidth - 60,
+                          maxWidth: node.width - 60,
                         ),
                         child: Text(
                           "You: ${node.userInput}",
@@ -421,7 +419,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.only(left: 24),
-                  width: context.watch<ThemeProvider>().nodeWidth - 16,
+                  width: node.width - 16,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
@@ -437,7 +435,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                       const SizedBox(height: 4),
                       ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxHeight: context.watch<ThemeProvider>().nodeHeight - 100,
+                          maxHeight: node.height - 100,
                         ),
                         child: ScrollConfiguration(
                           behavior: ScrollConfiguration.of(context).copyWith(
@@ -484,7 +482,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 const Divider(height: 8, thickness: 0.5),
                 Container(
                   constraints: BoxConstraints(
-                    maxWidth: context.watch<ThemeProvider>().nodeWidth - 16,
+                    maxWidth: node.width - 16,
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -577,7 +575,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     bool isSelected = widget.selectedNode?.id == node.id;
     bool canCollapse = node.childrenIds.isNotEmpty;
     bool isDragging = _isDragMode && _dragTargetNodeId == node.id;
-    
+
     if (!_nodePositions.containsKey(node.id)) {
       _nodePositions[node.id] = const Offset(100, 100);
     }
@@ -585,6 +583,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     return Positioned(
       left: _nodePositions[node.id]!.dx,
       top: _nodePositions[node.id]!.dy,
+      width: node.width,
+      height: node.height,
       child: GestureDetector(
         onLongPressStart: (_) => _handleNodeLongPress(node),
         onLongPressEnd: (_) => _handleDragEnd(),
@@ -598,24 +598,81 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             _handleDragEnd();
           }
         },
-        onPanUpdate: (isDragging || isSelected) ? (details) {
+        onPanUpdate: (isDragging || isSelected)
+            ? (details) {
+                setState(() {
+                  final newPosition =
+                      _nodePositions[node.id]! + details.delta;
+                  if (_enableGridSnap) {
+                    final snappedX = (newPosition.dx / 20).round() * 20.0;
+                    final snappedY = (newPosition.dy / 20).round() * 20.0;
+                    _nodePositions[node.id] = Offset(snappedX, snappedY);
+                  } else {
+                    _nodePositions[node.id] = newPosition;
+                  }
+                });
+              }
+            : null,
+        child: Stack(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              transform: isDragging
+                  ? (Matrix4.identity()..translate(0.0, -5.0))
+                  : Matrix4.identity(),
+              child: _buildNodeContent(node, isSelected, canCollapse),
+            ),
+            if (isSelected) ...[
+              _buildResizeHandle(node, Alignment.topLeft),
+              _buildResizeHandle(node, Alignment.topRight),
+              _buildResizeHandle(node, Alignment.bottomLeft),
+              _buildResizeHandle(node, Alignment.bottomRight),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResizeHandle(ChatNode node, Alignment alignment) {
+    return Align(
+      alignment: alignment,
+      child: GestureDetector(
+        onPanUpdate: (details) {
           setState(() {
-            final newPosition = _nodePositions[node.id]! + details.delta;
-            if (_enableGridSnap) {
-              final snappedX = (newPosition.dx / 20).round() * 20.0;
-              final snappedY = (newPosition.dy / 20).round() * 20.0;
-              _nodePositions[node.id] = Offset(snappedX, snappedY);
+            if (alignment.x < 0) {
+              node.width -= details.delta.dx;
+              _nodePositions[node.id] = Offset(
+                  _nodePositions[node.id]!.dx + details.delta.dx,
+                  _nodePositions[node.id]!.dy);
             } else {
-              _nodePositions[node.id] = newPosition;
+              node.width += details.delta.dx;
             }
+
+            if (alignment.y < 0) {
+              node.height -= details.delta.dy;
+              _nodePositions[node.id] = Offset(
+                  _nodePositions[node.id]!.dx,
+                  _nodePositions[node.id]!.dy + details.delta.dy);
+            } else {
+              node.height += details.delta.dy;
+            }
+
+            // Minimum size constraints
+            if (node.width < 100) node.width = 100;
+            if (node.height < 80) node.height = 80;
           });
-        } : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          transform: isDragging
-              ? (Matrix4.identity()..translate(0.0, -5.0))
-              : Matrix4.identity(),
-          child: _buildNodeContent(node, isSelected, canCollapse),
+        },
+        child: MouseRegion(
+          cursor: SystemMouseCursors.resizeUpLeftDownRight,
+          child: Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.5),
+              shape: BoxShape.circle,
+            ),
+          ),
         ),
       ),
     );

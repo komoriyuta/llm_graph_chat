@@ -11,7 +11,9 @@ class ChatNode {
   String llmOutput;
   final List<String> childrenIds;
   final DateTime timestamp;
-  bool isCollapsed; // Add collapsed state flag
+  bool isCollapsed;
+  double width;
+  double height;
 
   ChatNode({
     String? id,
@@ -20,7 +22,9 @@ class ChatNode {
     this.llmOutput = '',
     List<String>? childrenIds,
     DateTime? timestamp,
-    this.isCollapsed = false, // Initialize with default value
+    this.isCollapsed = false,
+    this.width = 300.0,
+    this.height = 200.0,
   }) : id = id ?? const Uuid().v4(),
        childrenIds = childrenIds ?? [],
        timestamp = timestamp ?? DateTime.now();
