@@ -202,6 +202,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final newNode = ChatNode(
       parentId: parentNode.id,
       userInput: userInput,
+      position: parentNode.position + const Offset(0,200),
     );
 
     setState(() {
@@ -370,6 +371,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   onNodeSelected: _handleNodeSelected,
                   onToggleCollapse: _toggleNodeCollapse,
                   onRegenerate: _handleRegenerate,
+                  onSessionSave: _saveCurrentSession, 
                 ))
           : const Center(child: Text("Initializing...")),
     );

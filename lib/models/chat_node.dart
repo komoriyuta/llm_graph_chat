@@ -1,27 +1,40 @@
+import 'package:flutter/material.dart';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:uuid/uuid.dart';
 
 part 'chat_node.g.dart';
+
+// OffsetをJSONに変換するためのヘルパー関数
+Map<String, dynamic> _offsetToJson(Offset offset) => {'dx': offset.dx, 'dy': offset.dy};
+
+Offset _offsetFromJson(Map<String, dynamic> json) => Offset(json['dx'] as double, json['dy'] as double);
 
 @JsonSerializable()
 class ChatNode {
   final String id;
   final String? parentId;
   final String userInput;
+
+  // JsonKeyアノテーションを追加して、変換方法を指示する
+  @JsonKey(fromJson: _offsetFromJson, toJson: _offsetToJson)
+  Offset position;
+
   String llmOutput;
   final List<String> childrenIds;
   final DateTime timestamp;
-  bool isCollapsed; // Add collapsed state flag
+  bool isCollapsed;
 
   ChatNode({
     String? id,
     this.parentId,
     required this.userInput,
+    Offset? position,
     this.llmOutput = '',
     List<String>? childrenIds,
     DateTime? timestamp,
-    this.isCollapsed = false, // Initialize with default value
+    this.isCollapsed = false,
   }) : id = id ?? const Uuid().v4(),
+       position = position ?? Offset.zero,
        childrenIds = childrenIds ?? [],
        timestamp = timestamp ?? DateTime.now();
 
