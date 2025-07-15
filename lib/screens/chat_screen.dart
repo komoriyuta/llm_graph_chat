@@ -68,24 +68,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
 
   Future<void> _saveCurrentSession() async {
-    // ★★★ デバッグ用のprint文を追加 ★★★
-    print('--- Saving Session ---');
     try {
-      // 実際にJSONに変換してみる
-      final json = _currentSession.toJson();
-      print('JSON conversion successful.');
-
-      // 保存処理を実行
       await _storageService.saveSession(_currentSession);
-      print('Session saved to storage successfully.');
-
     } catch (e, s) {
       // エラーが出た場合はコンソールに出力する
-      print('!!!!!! ERROR during saving session !!!!!!!');
       print(e);
       print(s); // スタックトレース
     }
-    print('--- Save attempt finished ---');
   }
 
   void _createNewSession() {
