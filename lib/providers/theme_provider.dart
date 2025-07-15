@@ -38,22 +38,24 @@ class ThemeProvider extends ChangeNotifier {
 
   ThemeData get theme {
     if (_isDarkMode) {
-      return ThemeData.dark().copyWith(
+      return ThemeData(
+        brightness: Brightness.dark,
         primaryColor: Colors.purple,
-        fontFamily: "Noto Sans JP",
         colorScheme: const ColorScheme.dark(
           primary: Colors.purple,
           secondary: Colors.purpleAccent,
         ),
+        fontFamily: 'NotoSansJP',
       );
     }
-    return ThemeData.light().copyWith(
+    return ThemeData(
+      brightness: Brightness.light,
       primaryColor: Colors.blue,
-      fontFamily: "Noto Sans JP",
       colorScheme: const ColorScheme.light(
         primary: Colors.blue,
         secondary: Colors.blueAccent,
       ),
+      fontFamily: 'NotoSansJP',
     );
   }
 }
