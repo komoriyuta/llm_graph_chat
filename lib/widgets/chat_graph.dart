@@ -588,13 +588,13 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       scaleEnabled: !_isNodeHovered,
       panEnabled: !_isNodeHovered,
       child: SizedBox(
-        width: 3000,
-        height: 3000,
+        width: 6000,
+        height: 5000,
         child: Stack(
           fit: StackFit.expand,
           children: [
             CustomPaint(
-              size: const Size(3000, 3000),
+              size: const Size(6000, 5000),
               painter: EdgePainter(
                 nodes: widget.session.nodes,
                 chatNodeMap: _chatNodeMap,
