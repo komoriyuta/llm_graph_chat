@@ -155,7 +155,24 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     super.initState();
     _buildChatNodeMap();
     // レイアウト計算は最初のビルド後に行う
-    WidgetsBinding.instance.addPostFrameCallback((_) => _calculateLayout());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // もしグラフのレイアウトが必要そうなら、自動レイアウトを実行する
+      if (_isLayoutNeeded()) {
+        _calculateLayout();
+      }
+    });
+  }
+  bool _isLayoutNeeded() {
+    // ノードがなければ不要
+    if (widget.session.nodes.isEmpty) return false;
+
+    // ルートノードを取得
+    final rootNodes = _getRootNodes();
+    if (rootNodes.isEmpty) return true; // ルートがない異常系ならとりあえず実行
+
+    // すべてのルートノードの位置が初期値(0,0)のままなら、
+    // 新規作成されたか、まだ一度もレイアウトされていないグラフと判断する
+    return rootNodes.every((node) => node.position == Offset.zero);
   }
 
   @override
@@ -164,6 +181,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     if (widget.session.nodes.length != oldWidget.session.nodes.length) {
       _buildChatNodeMap();
       _calculateLayout();
+      
     }
 
     if (widget.selectedNode != null &&
