@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations: 
+    sdk: flutter
   cupertino_icons: ^1.0.6
   shared_preferences: ^2.2.2
   provider: ^6.1.1
@@ -41,6 +43,7 @@ dependencies:
   json_annotation: ^4.8.1
   http: ^1.2.0
   flutter_markdown: any
+  
   
 
 dev_dependencies:
@@ -60,6 +63,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  fonts:
+  - family: Noto Sans JP
+    fonts:
+      - asset: fonts/NotoSansJP-Regular.otf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

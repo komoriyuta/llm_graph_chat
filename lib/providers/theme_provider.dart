@@ -40,6 +40,7 @@ class ThemeProvider extends ChangeNotifier {
     if (_isDarkMode) {
       return ThemeData.dark().copyWith(
         primaryColor: Colors.purple,
+        fontFamily: "Noto Sans JP",
         colorScheme: const ColorScheme.dark(
           primary: Colors.purple,
           secondary: Colors.purpleAccent,
@@ -48,6 +49,7 @@ class ThemeProvider extends ChangeNotifier {
     }
     return ThemeData.light().copyWith(
       primaryColor: Colors.blue,
+      fontFamily: "Noto Sans JP",
       colorScheme: const ColorScheme.light(
         primary: Colors.blue,
         secondary: Colors.blueAccent,

@@ -24,6 +24,14 @@ class MyApp extends StatelessWidget {
           theme: themeProvider.theme,
           home: const ChatScreen(),
         );
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale("ja", "JP"),
+        ],
       },
     );
   }
