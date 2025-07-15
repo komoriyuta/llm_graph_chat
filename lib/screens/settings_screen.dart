@@ -141,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Slider(
                           value: themeProvider.nodeWidth,
                           min: 200,
-                          max: 500,
+                          max: 1000,
                           divisions: 30,
                           label: themeProvider.nodeWidth.round().toString(),
                           onChanged: (value) {
@@ -153,7 +153,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Slider(
                           value: themeProvider.nodeHeight,
                           min: 100,
-                          max: 400,
+                          max:  1000,
                           divisions: 30,
                           label: themeProvider.nodeHeight.round().toString(),
                           onChanged: (value) {
