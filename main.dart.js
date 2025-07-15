@@ -90213,10 +90213,10 @@ $1(a){this.a.CE()},
 $S:9}
 A.auy.prototype={
 $3(a,b,c){var s,r=null,q=b.c,p=B.d.aF(q),o=A.dd("\u30ce\u30fc\u30c9\u306e\u5e45: "+p+"px",r,r,r,r,r,r)
-q=A.aG0(30,B.h.k(p),500,200,new A.auu(b),q)
+q=A.aG0(30,B.h.k(p),1000,200,new A.auu(b),q)
 p=b.d
 s=B.d.aF(p)
-return A.i7(A.b([o,q,B.f4,A.dd("\u30ce\u30fc\u30c9\u306e\u9ad8\u3055: "+s+"px",r,r,r,r,r,r),A.aG0(30,B.h.k(s),400,100,new A.auv(b),p)],t.p),B.b5,B.a8,B.bS)},
+return A.i7(A.b([o,q,B.f4,A.dd("\u30ce\u30fc\u30c9\u306e\u9ad8\u3055: "+s+"px",r,r,r,r,r,r),A.aG0(30,B.h.k(s),1000,100,new A.auv(b),p)],t.p),B.b5,B.a8,B.bS)},
 $C:"$3",
 $R:3,
 $S:564}
