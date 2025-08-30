@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart' show MatrixUtils;
 import 'dart:math' as math;
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
@@ -43,19 +45,26 @@ class EdgePainter extends CustomPainter {
   final Map<String, ChatNode> chatNodeMap;
   final ChatNode? selectedNode;
   final bool isDarkMode;
+  final int graphVersion;
+  final Set<String> visibleNodeIds;
 
   EdgePainter({
     required this.nodes,
     required this.chatNodeMap,
     required this.selectedNode,
     required this.isDarkMode,
-  });
+    required this.graphVersion,
+    required this.visibleNodeIds,
+    Listenable? repaint,
+  }) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
     for (final node in nodes) {
+      if (!visibleNodeIds.contains(node.id)) continue;
       if (node.parentId != null && chatNodeMap.containsKey(node.parentId)) {
         final parentNode = chatNodeMap[node.parentId]!;
+        if (!visibleNodeIds.contains(parentNode.id)) continue;
         final isSelected =
             selectedNode?.id == node.id || selectedNode?.id == parentNode.id;
 
@@ -97,9 +106,10 @@ class EdgePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant EdgePainter oldDelegate) {
-    return oldDelegate.nodes != nodes ||
-        oldDelegate.selectedNode != selectedNode ||
-        oldDelegate.isDarkMode != isDarkMode;
+    return oldDelegate.graphVersion != graphVersion ||
+        oldDelegate.selectedNode?.id != selectedNode?.id ||
+        oldDelegate.isDarkMode != isDarkMode ||
+        !setEquals(oldDelegate.visibleNodeIds, visibleNodeIds);
   }
 }
 
@@ -114,6 +124,7 @@ typedef SessionSaveCallback = void Function();
 /// チャットグラフ全体を表示するメインウィジェット
 class ChatGraphWidget extends StatefulWidget {
   final GraphSession session;
+  final int graphVersion;
   final GenerateChildCallback onGenerateChild;
   final NodeSelectedCallback onNodeSelected;
   final ToggleCollapseCallback onToggleCollapse;
@@ -124,6 +135,7 @@ class ChatGraphWidget extends StatefulWidget {
   const ChatGraphWidget({
     super.key,
     required this.session,
+    required this.graphVersion,
     required this.onGenerateChild,
     required this.onNodeSelected,
     required this.onToggleCollapse,
@@ -149,6 +161,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   String? _dragTargetNodeId;
   final Map<String, ScrollController> _llmOutputScrollControllers = {};
   bool _enableGridSnap = false;
+  final ValueNotifier<int> _edgeRepaint = ValueNotifier<int>(0);
+  final Set<String> _expandedOutputIds = {};
+  Set<String>? _visibleIds;
 
   @override
   void initState() {
@@ -175,10 +190,22 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     return rootNodes.every((node) => node.position == Offset.zero);
   }
 
+  bool _isHiddenByCollapsedAncestor(ChatNode node) {
+    var current = node;
+    while (current.parentId != null) {
+      final parent = _chatNodeMap[current.parentId];
+      if (parent == null) return false;
+      if (parent.isCollapsed) return true;
+      current = parent;
+    }
+    return false;
+  }
+
   @override
   void didUpdateWidget(covariant ChatGraphWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.session.nodes.length != oldWidget.session.nodes.length) {
+    if (widget.session.nodes.length != oldWidget.session.nodes.length ||
+        widget.graphVersion != oldWidget.graphVersion) {
       _buildChatNodeMap();
       _calculateLayout();
       
@@ -204,9 +231,30 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     _nodeInputController.dispose();
     _nodeInputFocusNode.dispose();
     _transformationController.dispose();
+    _edgeRepaint.dispose();
     _llmOutputScrollControllers.values
         .forEach((controller) => controller.dispose());
     super.dispose();
+  }
+
+  Set<String> _computeVisibleIds() {
+    final theme = context.read<ThemeProvider>();
+    final nodeW = theme.nodeWidth;
+    final nodeH = theme.nodeHeight;
+    final screenSize = MediaQuery.of(context).size;
+    final inv = Matrix4.inverted(_transformationController.value);
+    final topLeft = MatrixUtils.transformPoint(inv, Offset.zero);
+    final bottomRight = MatrixUtils.transformPoint(
+        inv, Offset(screenSize.width, screenSize.height));
+    final viewport = Rect.fromPoints(topLeft, bottomRight).inflate(400);
+    bool isVisible(ChatNode n) {
+      final r = Rect.fromLTWH(n.position.dx, n.position.dy, nodeW, nodeH);
+      return r.overlaps(viewport);
+    }
+    return {
+      for (final n in widget.session.nodes)
+        if (!_isHiddenByCollapsedAncestor(n) && isVisible(n)) n.id
+    };
   }
 
   void _buildChatNodeMap() {
@@ -250,7 +298,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     int width = 0;
     for (final childId in node.childrenIds) {
       if (_chatNodeMap.containsKey(childId)) {
-        width += _calculateSubtreeWidth(_chatNodeMap[childId]!);
+        // 折りたたまれているサブツリーは幅1として扱い、子を配置しない
+        final child = _chatNodeMap[childId]!;
+        width += child.isCollapsed ? 1 : _calculateSubtreeWidth(child);
       }
     }
     return math.max(1, width);
@@ -278,6 +328,12 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       for (final childId in node.childrenIds) {
         if (_chatNodeMap.containsKey(childId)) {
           final child = _chatNodeMap[childId]!;
+          if (child.isCollapsed) {
+            // 折りたたみ中の子サブツリーは配置計算を最小限に
+            child.position = Offset(childX, childY);
+            childX += horizontalSpacing;
+            continue;
+          }
           _layoutNode(
             child,
             childX,
@@ -308,55 +364,10 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
 
   Widget _buildMarkdownContent(
       String content, TextStyle style, bool isDarkMode) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        MarkdownBody(
-          data: content,
-          styleSheet: MarkdownStyleSheet(
-            p: style,
-            code: style.copyWith(
-              fontFamily: 'monospace',
-              backgroundColor:
-                  isDarkMode ? Colors.grey.shade900 : Colors.grey.shade100,
-            ),
-            codeblockDecoration: BoxDecoration(
-              color: isDarkMode ? Colors.grey.shade900 : Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color:
-                    isDarkMode ? Colors.grey.shade800 : Colors.grey.shade300,
-              ),
-            ),
-            blockquoteDecoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(
-                  color:
-                      isDarkMode ? Colors.grey.shade700 : Colors.grey.shade400,
-                  width: 4,
-                ),
-              ),
-            ),
-          ),
-          builders: {
-            'code': CodeBuilder(
-              style.copyWith(
-                fontSize: style.fontSize,
-                height: 1.5,
-              ),
-              isDarkMode: isDarkMode,
-            ),
-          },
-          extensionSet: md.ExtensionSet.gitHubFlavored,
-          selectable: true,
-          softLineBreak: true,
-        ),
-      ],
-    );
+    return MemoMarkdown(content: content, style: style, isDarkMode: isDarkMode);
   }
 
-  Widget _buildNodeContent(ChatNode node, bool isSelected, bool canCollapse) {
+  Widget _buildNodeContent(ChatNode node, bool isSelected, bool canCollapse, {bool compact = false}) {
     final isDarkMode = context.watch<ThemeProvider>().isDarkMode;
     final backgroundColor = isDarkMode
         ? (isSelected ? Colors.purple.shade900 : Colors.grey.shade900)
@@ -484,6 +495,11 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                               _llmOutputScrollControllers[node.id] =
                                   ScrollController();
                             }
+                            final full = node.llmOutput;
+                            final expanded = _expandedOutputIds.contains(node.id);
+                            final preview = full.length > 500 && !expanded
+                                ? full.substring(0, 500) + '...'
+                                : full;
                             return RawScrollbar(
                               thumbVisibility: true,
                               trackVisibility: true,
@@ -499,7 +515,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                               child: SingleChildScrollView(
                                 controller: _llmOutputScrollControllers[node.id],
                                 child: _buildMarkdownContent(
-                                  node.llmOutput,
+                                  preview,
                                   TextStyle(
                                     fontSize: 13,
                                     color: textColor,
@@ -512,6 +528,24 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                           }),
                         ),
                       ),
+                      if (node.llmOutput.length > 500)
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              if (_expandedOutputIds.contains(node.id)) {
+                                _expandedOutputIds.remove(node.id);
+                              } else {
+                                _expandedOutputIds.add(node.id);
+                              }
+                            });
+                          },
+                          child: Text(
+                            _expandedOutputIds.contains(node.id)
+                                ? 'Show less'
+                                : 'Show more',
+                            style: TextStyle(color: textColor),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -587,6 +621,11 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       transformationController: _transformationController,
       scaleEnabled: !_isNodeHovered,
       panEnabled: !_isNodeHovered,
+      onInteractionEnd: (_) {
+        setState(() {
+          _visibleIds = _computeVisibleIds();
+        });
+      },
       child: SizedBox(
         width: 6000,
         height: 5000,
@@ -600,9 +639,14 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 chatNodeMap: _chatNodeMap,
                 selectedNode: widget.selectedNode,
                 isDarkMode: context.watch<ThemeProvider>().isDarkMode,
+                graphVersion: widget.graphVersion,
+                visibleNodeIds: _visibleIds ?? _computeVisibleIds(),
+                repaint: _edgeRepaint,
               ),
             ),
-            ...widget.session.nodes.map((node) => _buildNodeWidget(node)),
+            ...widget.session.nodes
+                .where((n) => (_visibleIds ?? _computeVisibleIds()).contains(n.id))
+                .map((node) => _buildNodeWidget(node)),
           ],
         ),
       ),
@@ -614,7 +658,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     bool canCollapse = node.childrenIds.isNotEmpty;
     bool isDragging = _isDragMode && _dragTargetNodeId == node.id;
 
-    return Positioned(
+    return StatefulBuilder(builder: (context, localSetState) {
+      return Positioned(
       left: node.position.dx,
       top: node.position.dy,
       child: GestureDetector(
@@ -636,7 +681,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
         },
         onPanUpdate: (isDragging || isSelected)
             ? (details) {
-                setState(() {
+                localSetState(() {
                   // node.positionを直接更新する
                   final newPosition = node.position + details.delta;
                   if (_enableGridSnap) {
@@ -647,17 +692,22 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                     node.position = newPosition;
                   }
                 });
+                // エッジのみ再描画（親は再buildしない）
+                _edgeRepaint.value++;
               }
             : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          transform: isDragging
-              ? (Matrix4.identity()..translate(0.0, -5.0))
-              : Matrix4.identity(),
-          child: _buildNodeContent(node, isSelected, canCollapse),
+        child: RepaintBoundary(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            transform: isDragging
+                ? (Matrix4.identity()..translate(0.0, -5.0))
+                : Matrix4.identity(),
+            child: _buildNodeContent(node, isSelected, canCollapse),
+          ),
         ),
       ),
     );
+    });
   }
 
   void _generateChild(ChatNode parentNode, String userInput) {
@@ -665,5 +715,93 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       widget.onGenerateChild(parentNode, userInput);
       _nodeInputController.clear();
     }
+  }
+}
+
+class MemoMarkdown extends StatefulWidget {
+  final String content;
+  final TextStyle style;
+  final bool isDarkMode;
+  const MemoMarkdown({super.key, required this.content, required this.style, required this.isDarkMode});
+
+  @override
+  State<MemoMarkdown> createState() => _MemoMarkdownState();
+}
+
+class _MemoMarkdownState extends State<MemoMarkdown> {
+  late String _cachedContent;
+  late bool _cachedDark;
+  late TextStyle _cachedStyle;
+  late Widget _built;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuild();
+  }
+
+  @override
+  void didUpdateWidget(covariant MemoMarkdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.content != widget.content ||
+        oldWidget.isDarkMode != widget.isDarkMode ||
+        oldWidget.style != widget.style) {
+      _rebuild();
+    }
+  }
+
+  void _rebuild() {
+    _cachedContent = widget.content;
+    _cachedDark = widget.isDarkMode;
+    _cachedStyle = widget.style;
+    _built = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MarkdownBody(
+          data: _cachedContent,
+          styleSheet: MarkdownStyleSheet(
+            p: _cachedStyle,
+            code: _cachedStyle.copyWith(
+              fontFamily: 'monospace',
+              backgroundColor:
+                  _cachedDark ? Colors.grey.shade900 : Colors.grey.shade100,
+            ),
+            codeblockDecoration: BoxDecoration(
+              color: _cachedDark ? Colors.grey.shade900 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: _cachedDark ? Colors.grey.shade800 : Colors.grey.shade300,
+              ),
+            ),
+            blockquoteDecoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(
+                  color: _cachedDark ? Colors.grey.shade700 : Colors.grey.shade400,
+                  width: 4,
+                ),
+              ),
+            ),
+          ),
+          builders: {
+            'code': CodeBuilder(
+              _cachedStyle.copyWith(
+                fontSize: _cachedStyle.fontSize,
+                height: 1.5,
+              ),
+              isDarkMode: _cachedDark,
+            ),
+          },
+          extensionSet: md.ExtensionSet.gitHubFlavored,
+          selectable: true,
+          softLineBreak: true,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _built;
   }
 }

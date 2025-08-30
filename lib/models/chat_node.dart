@@ -4,7 +4,6 @@ import 'package:uuid/uuid.dart';
 
 part 'chat_node.g.dart';
 
-// OffsetをJSONに変換するためのヘルパー関数
 Map<String, dynamic> _offsetToJson(Offset offset) => {'dx': offset.dx, 'dy': offset.dy};
 
 Offset _offsetFromJson(Map<String, dynamic> json) => Offset(json['dx'] as double, json['dy'] as double);
@@ -15,7 +14,6 @@ class ChatNode {
   final String? parentId;
   final String userInput;
 
-  // JsonKeyアノテーションを追加して、変換方法を指示する
   @JsonKey(fromJson: _offsetFromJson, toJson: _offsetToJson)
   Offset position;
 

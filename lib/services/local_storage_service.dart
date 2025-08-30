@@ -46,6 +46,13 @@ class LocalStorageService {
       return [];
     }
   }
+
+  // 全セッション一括保存（状態管理側からのバルク書き込み用）
+  Future<void> writeSessions(List<GraphSession> sessions) async {
+    final prefs = await SharedPreferences.getInstance();
+    final sessionList = SessionList(sessions: sessions);
+    await prefs.setString(_sessionsKey, jsonEncode(sessionList.toJson()));
+  }
   
   // セッションの削除
   Future<void> deleteSession(String sessionId) async {

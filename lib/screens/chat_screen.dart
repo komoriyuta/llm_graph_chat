@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../utils/platform_util.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
+import '../models/session_list.dart';
 import '../services/llm_service.dart';
 import '../services/secure_storage_service.dart';
-import '../services/local_storage_service.dart';
 import '../widgets/chat_graph.dart';
 import '../widgets/session_drawer.dart';
 import 'settings_screen.dart';
+import 'package:provider/provider.dart';
+import '../providers/session_provider.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -18,20 +20,16 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  late GraphSession _currentSession;
   ChatNode? _selectedNode;
   late LlmService _llmService;
-  late LocalStorageService _storageService;
   bool _isGenerating = false;
   String? _selectedModel;
   List<String> _availableModels = [];
-  List<GraphSession> _allSessions = [];
 
   @override
   void initState() {
     super.initState();
     _llmService = LlmService(SecureStorageService());
-    _storageService = LocalStorageService();
     _initializeScreen();
   }
 
@@ -46,21 +44,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final selectedModel = await SecureStorageService().getSelectedModel();
     _selectedModel = selectedModel ?? LlmService.defaultModel;
 
-    // 保存されているセッションを読み込む
-    final sessions = await _storageService.loadSessions();
     if (!mounted) return;
-
-    // セッションを更新日の新しい順にソート
-    sessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-
     setState(() {
-      _allSessions = sessions;
-      if (sessions.isNotEmpty) {
-        _currentSession = sessions.first;
-      } else {
-        _currentSession = GraphSession(title: 'New Chat');
-        _allSessions.add(_currentSession);
-      }
       _selectedNode = null;
       _isGenerating = false;
     });
@@ -68,37 +53,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
 
   Future<void> _saveCurrentSession() async {
-    try {
-      await _storageService.saveSession(_currentSession);
-    } catch (e, s) {
-      // エラーが出た場合はコンソールに出力する
-      print(e);
-      print(s); // スタックトレース
-    }
+    await context.read<SessionProvider>().saveNow();
   }
 
   void _createNewSession() {
-    final newSession = GraphSession(title: 'New Chat');
-    setState(() {
-      _allSessions.insert(0, newSession);
-      _currentSession = newSession;
-      _selectedNode = null;
-    });
-    _saveCurrentSession();
+    context.read<SessionProvider>().createNewSession();
+    setState(() => _selectedNode = null);
   }
 
   Future<void> _deleteSession(GraphSession session) async {
-    await _storageService.deleteSession(session.id);
-    setState(() {
-      _allSessions.removeWhere((s) => s.id == session.id);
-      if (_currentSession.id == session.id) {
-        if (_allSessions.isNotEmpty) {
-          _currentSession = _allSessions.first;
-        } else {
-          _createNewSession();
-        }
-      }
-    });
+    context.read<SessionProvider>().deleteSession(session.id);
   }
 
   Future<void> _exportSession() async {
@@ -106,9 +70,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final timestamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}'
                      '_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
     final filename = 'chat_export_$timestamp.json';
-    
-    // GraphSessionをJSON文字列に変換
-    final jsonStr = const JsonEncoder.withIndent('  ').convert(_currentSession.toJson());
+    final current = context.read<SessionProvider>().currentSession;
+    if (current == null) return;
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(current.toJson());
     
     try {
       await exportFile(jsonStr, filename);
@@ -122,34 +86,42 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _updateSessionTitle(GraphSession session, String newTitle) async {
-    final index = _allSessions.indexWhere((s) => s.id == session.id);
-    if (index != -1) {
-      final updatedSession = GraphSession(
-        id: session.id,
-        title: newTitle,
-        nodes: session.nodes,
-        rootNodeId: session.rootNodeId,
-        createdAt: session.createdAt,
-        updatedAt: DateTime.now(),
-      );
-
-      setState(() {
-        _allSessions[index] = updatedSession;
-        if (_currentSession.id == session.id) {
-          _currentSession = updatedSession;
+  Future<void> _importSession() async {
+    final content = await importTextFile(extensions: ['json']);
+    if (content == null) return;
+    try {
+      final decoded = jsonDecode(content);
+      if (decoded is Map<String, dynamic> && decoded.containsKey('sessions')) {
+        // SessionList 形式にも対応
+        final list = SessionList.fromJson(decoded);
+        for (final s in list.sessions) {
+          context.read<SessionProvider>().addImportedSession(s);
         }
-        _allSessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      });
-      await _storageService.updateSession(updatedSession);
+      } else if (decoded is Map<String, dynamic>) {
+        final session = GraphSession.fromJson(decoded);
+        context.read<SessionProvider>().addImportedSession(session);
+      } else {
+        throw Exception('Unsupported JSON');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('チャット履歴をインポートしました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('インポートに失敗しました')),
+      );
     }
   }
 
+  Future<void> _updateSessionTitle(GraphSession session, String newTitle) async {
+    context.read<SessionProvider>().updateSessionTitle(session.id, newTitle);
+  }
+
   void _switchSession(GraphSession session) {
-    setState(() {
-      _currentSession = session;
-      _selectedNode = null;
-    });
+    context.read<SessionProvider>().switchSession(session.id);
+    setState(() => _selectedNode = null);
   }
 
   void _handleNodeSelected(ChatNode node) {
@@ -164,37 +136,19 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     setState(() => _isGenerating = true);
 
-    final firstNode = ChatNode(
-      parentId: null,
-      userInput: userInput,
-      id: _currentSession.rootNodeId,
-    );
+    final provider = context.read<SessionProvider>();
+    final firstNode = provider.addRootNode(userInput);
+    setState(() => _selectedNode = firstNode);
 
-    setState(() {
-      _currentSession.addNode(firstNode);
-      _selectedNode = firstNode;
-    });
-    await _saveCurrentSession();
+    final current = provider.currentSession!;
+    final llmResponse = await _llmService.generateResponse(current, firstNode);
 
-    final llmResponse = await _llmService.generateResponse(_currentSession, firstNode);
-
-    setState(() {
-      final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == firstNode.id);
-      if (nodeIndex != -1) {
-        _currentSession.nodes[nodeIndex].llmOutput = llmResponse;
-      }
-      _isGenerating = false;
-    });
-    await _saveCurrentSession();
+    provider.updateNodeOutput(firstNode.id, llmResponse);
+    setState(() => _isGenerating = false);
   }
 
   void _toggleNodeCollapse(ChatNode node) {
-    setState(() {
-      final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == node.id);
-      if (nodeIndex != -1) {
-        _currentSession.nodes[nodeIndex].isCollapsed = !_currentSession.nodes[nodeIndex].isCollapsed;
-      }
-    });
+    context.read<SessionProvider>().toggleNodeCollapse(node.id);
   }
 
   void _handleGenerateChild(ChatNode parentNode, String userInput) async {
@@ -206,32 +160,15 @@ class _ChatScreenState extends State<ChatScreen> {
       _isGenerating = true;
     });
 
-    final newNode = ChatNode(
-      parentId: parentNode.id,
-      userInput: userInput,
-      position: parentNode.position + const Offset(0,200),
-    );
+    final provider = context.read<SessionProvider>();
+    final newNode = provider.addChildNode(parentNode, userInput);
+    setState(() => _selectedNode = newNode);
 
-    setState(() {
-      _currentSession.addNode(newNode);
-      final parentIndex = _currentSession.nodes.indexWhere((n) => n.id == parentNode.id);
-      if (parentIndex != -1) {
-        _currentSession.nodes[parentIndex].childrenIds.add(newNode.id);
-      }
-      _selectedNode = newNode;
-    });
-    await _saveCurrentSession();
+    final current = provider.currentSession!;
+    final llmResponse = await _llmService.generateResponse(current, newNode);
 
-    final llmResponse = await _llmService.generateResponse(_currentSession, newNode);
-
-    setState(() {
-      final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == newNode.id);
-      if (nodeIndex != -1) {
-        _currentSession.nodes[nodeIndex].llmOutput = llmResponse;
-      }
-      _isGenerating = false;
-    });
-    await _saveCurrentSession();
+    provider.updateNodeOutput(newNode.id, llmResponse);
+    setState(() => _isGenerating = false);
   }
 
   void _handleRegenerate(ChatNode node) async {
@@ -239,16 +176,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _isGenerating = true);
 
-    final llmResponse = await _llmService.generateResponse(_currentSession, node);
-
-    setState(() {
-      final nodeIndex = _currentSession.nodes.indexWhere((n) => n.id == node.id);
-      if (nodeIndex != -1) {
-        _currentSession.nodes[nodeIndex].llmOutput = llmResponse;
-      }
-      _isGenerating = false;
-    });
-    await _saveCurrentSession();
+    final provider = context.read<SessionProvider>();
+    final current = provider.currentSession!;
+    final llmResponse = await _llmService.generateResponse(current, node);
+    provider.updateNodeOutput(node.id, llmResponse);
+    setState(() => _isGenerating = false);
   }
 
   Future<void> _handleModelChange(String? newModel) async {
@@ -277,12 +209,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    bool isSessionInitialized = false;
-    try {
-      if (_currentSession != null) isSessionInitialized = true;
-    } catch (e) {
-      isSessionInitialized = false;
-    }
+    final sessionProvider = context.watch<SessionProvider>();
+    final currentSession = sessionProvider.currentSession;
+    final isSessionInitialized = currentSession != null;
 
     if (_isGenerating && !isSessionInitialized) {
       return Scaffold(
@@ -293,8 +222,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Scaffold(
       drawer: SessionDrawer(
-        sessions: _allSessions,
-        currentSession: _currentSession,
+        sessions: sessionProvider.sessions,
+        currentSession: currentSession,
         onSessionSelect: _switchSession,
         onNewSession: _createNewSession,
         onDeleteSession: _deleteSession,
@@ -304,7 +233,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Row(
           children: [
             Expanded(
-              child: Text(isSessionInitialized ? _currentSession.title : "Chat"),
+              child: Text(isSessionInitialized ? currentSession!.title : "Chat"),
             ),
             if (_availableModels.isNotEmpty) ...[
               const SizedBox(width: 16),
@@ -335,6 +264,12 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
+          if (isSessionInitialized)
+            IconButton(
+              icon: const Icon(Icons.upload_file),
+              tooltip: 'インポート',
+              onPressed: _importSession,
+            ),
           if (isSessionInitialized)
             IconButton(
               icon: const Icon(Icons.download),
@@ -369,16 +304,17 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       body: isSessionInitialized
-          ? (_currentSession.nodes.isEmpty
+          ? (currentSession.nodes.isEmpty
               ? _buildInitialInputView()
               : ChatGraphWidget(
-                  session: _currentSession,
+                  session: currentSession,
+                  graphVersion: sessionProvider.graphVersion,
                   selectedNode: _selectedNode,
                   onGenerateChild: _handleGenerateChild,
                   onNodeSelected: _handleNodeSelected,
                   onToggleCollapse: _toggleNodeCollapse,
                   onRegenerate: _handleRegenerate,
-                  onSessionSave: _saveCurrentSession, 
+                  onSessionSave: () => sessionProvider.scheduleSave(), 
                 ))
           : const Center(child: Text("Initializing...")),
     );

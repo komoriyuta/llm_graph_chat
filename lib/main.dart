@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/chat_screen.dart';
 import 'providers/theme_provider.dart';
+import 'providers/session_provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 void main() {
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => ThemeProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => SessionProvider()),
+      ],
       child: const MyApp(),
     ),
   );

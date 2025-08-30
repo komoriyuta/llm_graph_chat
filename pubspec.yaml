@@ -39,6 +39,7 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   graphview: ^1.2.0
   path_provider: ^2.1.2
+  file_picker: ^8.0.0
   uuid: ^4.3.3
   json_annotation: ^4.8.1
   http: ^1.2.0
