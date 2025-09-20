@@ -137,9 +137,12 @@ class LlmService {
 
     // チャット履歴を構築（新しい形式に合わせる）
     while (node != null) {
-      if (node.llmOutput.isNotEmpty) {
+      final bool isCurrentNode = node.id == currentNode.id;
+      final String trimmedOutput = node.llmOutput.trim();
+
+      if (!isCurrentNode && trimmedOutput.isNotEmpty) {
         history.insert(0, {
-          'parts': [{'text': node.llmOutput}],
+          'parts': [{'text': trimmedOutput}],
           'role': 'model'
         });
       }
