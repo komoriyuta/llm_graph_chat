@@ -45,6 +45,7 @@ app.*.map.json
 /android/app/release
 
 #Cline AI tools 
-docs/
+docs/lib*
+docs/README.md
 
 AGENTS.md
