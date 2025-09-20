@@ -207,8 +207,11 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     if (widget.session.nodes.length != oldWidget.session.nodes.length ||
         widget.graphVersion != oldWidget.graphVersion) {
       _buildChatNodeMap();
-      _calculateLayout();
-      
+      // 既にレイアウト済みの場合は再レイアウトしない
+      // （新規作成直後など、初回配置が必要な場合のみ自動レイアウト）
+      if (_isLayoutNeeded()) {
+        _calculateLayout();
+      }
     }
 
     if (widget.selectedNode != null &&
