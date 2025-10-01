@@ -19,8 +19,8 @@ flutter pub get
 flutter pub run build_runner build --delete-conflicting-outputs
 ```
 
-3. Gemini APIキーの設定:
-アプリ起動時に設定画面でAPIキーを入力
+3. LLM設定:
+アプリ起動後に設定画面から利用したいLLMサービス（Gemini / OpenAI / Claude / Custom オープンAI互換）を選択し、APIキーと必要に応じてエンドポイント・モデル名を入力
 
 ## TODO
 - ほかのLLMへの対応
