@@ -24,7 +24,6 @@ flutter pub run build_runner build --delete-conflicting-outputs
 
 ## TODO
 - ほかのLLMへの対応
-- チャット履歴のファイル保存・書き出しなど
 - ストリーム出力
 - ノードの種類・色の追加
 - 全体的な体験の向上
