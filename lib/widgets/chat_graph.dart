@@ -47,6 +47,8 @@ class EdgePainter extends CustomPainter {
   final bool isDarkMode;
   final int graphVersion;
   final Set<String> visibleNodeIds;
+  final double defaultNodeWidth;
+  final double defaultNodeHeight;
 
   EdgePainter({
     required this.nodes,
@@ -55,6 +57,8 @@ class EdgePainter extends CustomPainter {
     required this.isDarkMode,
     required this.graphVersion,
     required this.visibleNodeIds,
+    required this.defaultNodeWidth,
+    required this.defaultNodeHeight,
     Listenable? repaint,
   }) : super(repaint: repaint);
 
@@ -75,12 +79,15 @@ class EdgePainter extends CustomPainter {
           ..strokeWidth = isSelected ? 2.5 : 1.0
           ..style = PaintingStyle.stroke;
 
-        // 各ノードのpositionプロパティを直接参照する
+        final parentWidth = parentNode.width ?? defaultNodeWidth;
+        final parentHeight = parentNode.height ?? defaultNodeHeight;
+        final nodeWidth = node.width ?? defaultNodeWidth;
+
         final start = parentNode.position;
         final end = node.position;
 
-        final startPoint = Offset(start.dx + 100, start.dy + 100);
-        final endPoint = Offset(end.dx + 100, end.dy);
+        final startPoint = Offset(start.dx + parentWidth / 2, start.dy + parentHeight);
+        final endPoint = Offset(end.dx + nodeWidth / 2, end.dy);
 
         final dx = (endPoint.dx - startPoint.dx).abs();
         final dy = endPoint.dy - startPoint.dy;
@@ -159,6 +166,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
 
   bool _isDragMode = false;
   String? _dragTargetNodeId;
+  bool _isResizing = false;
+  String? _resizingNodeId;
+  Alignment? _resizeHandleAlignment;
   final Map<String, ScrollController> _llmOutputScrollControllers = {};
   bool _enableGridSnap = false;
   final ValueNotifier<int> _edgeRepaint = ValueNotifier<int>(0);
@@ -242,8 +252,6 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
 
   Set<String> _computeVisibleIds() {
     final theme = context.read<ThemeProvider>();
-    final nodeW = theme.nodeWidth;
-    final nodeH = theme.nodeHeight;
     final screenSize = MediaQuery.of(context).size;
     final inv = Matrix4.inverted(_transformationController.value);
     final topLeft = MatrixUtils.transformPoint(inv, Offset.zero);
@@ -251,9 +259,12 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
         inv, Offset(screenSize.width, screenSize.height));
     final viewport = Rect.fromPoints(topLeft, bottomRight).inflate(400);
     bool isVisible(ChatNode n) {
+      final nodeW = n.width ?? theme.nodeWidth;
+      final nodeH = n.height ?? theme.nodeHeight;
       final r = Rect.fromLTWH(n.position.dx, n.position.dy, nodeW, nodeH);
       return r.overlaps(viewport);
     }
+
     return {
       for (final n in widget.session.nodes)
         if (!_isHiddenByCollapsedAncestor(n) && isVisible(n)) n.id
@@ -435,8 +446,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                       fit: FlexFit.loose,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxWidth:
-                              context.watch<ThemeProvider>().nodeWidth - 60,
+                          maxWidth: (node.width ??
+                                  context.watch<ThemeProvider>().nodeWidth) -
+                              60,
                         ),
                         child: Text(
                           "You: ${node.userInput}",
@@ -466,7 +478,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.only(left: 24),
-                  width: context.watch<ThemeProvider>().nodeWidth - 16,
+                  width: (node.width ??
+                          context.watch<ThemeProvider>().nodeWidth) -
+                      16,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
@@ -482,8 +496,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                       const SizedBox(height: 4),
                       ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxHeight:
-                              context.watch<ThemeProvider>().nodeHeight - 100,
+                          maxHeight: (node.height ??
+                                  context.watch<ThemeProvider>().nodeHeight) -
+                              100,
                         ),
                         child: ScrollConfiguration(
                           behavior:
@@ -615,6 +630,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     if (widget.session.nodes.isEmpty) {
       return const Center(child: Text("Graph is empty."));
     }
+    final themeProvider = context.watch<ThemeProvider>();
 
     return InteractiveViewer(
       constrained: false,
@@ -622,8 +638,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       minScale: 0.01,
       maxScale: 2.0,
       transformationController: _transformationController,
-      scaleEnabled: !_isNodeHovered,
-      panEnabled: !_isNodeHovered,
+      scaleEnabled: !_isNodeHovered && !_isResizing,
+      panEnabled: !_isNodeHovered && !_isResizing,
       onInteractionEnd: (_) {
         setState(() {
           _visibleIds = _computeVisibleIds();
@@ -641,9 +657,11 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 nodes: widget.session.nodes,
                 chatNodeMap: _chatNodeMap,
                 selectedNode: widget.selectedNode,
-                isDarkMode: context.watch<ThemeProvider>().isDarkMode,
+                isDarkMode: themeProvider.isDarkMode,
                 graphVersion: widget.graphVersion,
                 visibleNodeIds: _visibleIds ?? _computeVisibleIds(),
+                defaultNodeWidth: themeProvider.nodeWidth,
+                defaultNodeHeight: themeProvider.nodeHeight,
                 repaint: _edgeRepaint,
               ),
             ),
@@ -660,57 +678,186 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     bool isSelected = widget.selectedNode?.id == node.id;
     bool canCollapse = node.childrenIds.isNotEmpty;
     bool isDragging = _isDragMode && _dragTargetNodeId == node.id;
+    final themeProvider = context.read<ThemeProvider>();
+    final nodeWidth = node.width ?? themeProvider.nodeWidth;
+    final nodeHeight = node.height ?? themeProvider.nodeHeight;
 
     return StatefulBuilder(builder: (context, localSetState) {
       return Positioned(
-      left: node.position.dx,
-      top: node.position.dy,
-      child: GestureDetector(
-        onLongPressStart: (_) => _handleNodeLongPress(node),
-        onLongPressEnd: (details) {
-          _handleDragEnd();
-          widget.onSessionSave(); 
-        },
-        onPanStart: (details) {
-          if (isSelected) {
-            _handleNodeLongPress(node);
-          }
-        },
-        onPanEnd: (_) {
-          if (isSelected) {
-            _handleDragEnd();
-            widget.onSessionSave(); 
-          }
-        },
-        onPanUpdate: (isDragging || isSelected)
-            ? (details) {
-                localSetState(() {
-                  // node.positionを直接更新する
-                  final newPosition = node.position + details.delta;
-                  if (_enableGridSnap) {
-                    final snappedX = (newPosition.dx / 20).round() * 20.0;
-                    final snappedY = (newPosition.dy / 20).round() * 20.0;
-                    node.position = Offset(snappedX, snappedY);
-                  } else {
-                    node.position = newPosition;
+        left: node.position.dx,
+        top: node.position.dy,
+        width: nodeWidth,
+        height: nodeHeight,
+        child: LayoutBuilder(builder: (context, constraints) {
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              GestureDetector(
+                onLongPressStart: (_) => _handleNodeLongPress(node),
+                onLongPressEnd: (details) {
+                  _handleDragEnd();
+                  widget.onSessionSave();
+                },
+                onPanStart: (details) {
+                  if (isSelected && !_isResizing) {
+                    _handleNodeLongPress(node);
                   }
-                });
-                // エッジのみ再描画（親は再buildしない）
-                _edgeRepaint.value++;
+                },
+                onPanEnd: (_) {
+                  if (isSelected && !_isResizing) {
+                    _handleDragEnd();
+                    widget.onSessionSave();
+                  }
+                },
+                onPanUpdate: (isDragging || (isSelected && !_isResizing))
+                    ? (details) {
+                        localSetState(() {
+                          final newPosition = node.position + details.delta;
+                          if (_enableGridSnap) {
+                            final snappedX =
+                                (newPosition.dx / 20).round() * 20.0;
+                            final snappedY =
+                                (newPosition.dy / 20).round() * 20.0;
+                            node.position = Offset(snappedX, snappedY);
+                          } else {
+                            node.position = newPosition;
+                          }
+                        });
+                        _edgeRepaint.value++;
+                      }
+                    : null,
+                child: RepaintBoundary(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    transform: isDragging
+                        ? (Matrix4.identity()..translate(0.0, -5.0))
+                        : Matrix4.identity(),
+                    child: _buildNodeContent(node, isSelected, canCollapse),
+                  ),
+                ),
+              ),
+              ..._buildResizeHandles(node),
+            ],
+          );
+        }),
+      );
+    });
+  }
+
+  List<Widget> _buildResizeHandles(ChatNode node) {
+    if (widget.selectedNode?.id != node.id) {
+      return [];
+    }
+
+    const handleSize = 12.0;
+    final handleAlignments = [
+      Alignment.topLeft,
+      Alignment.topCenter,
+      Alignment.topRight,
+      Alignment.centerLeft,
+      Alignment.centerRight,
+      Alignment.bottomLeft,
+      Alignment.bottomCenter,
+      Alignment.bottomRight,
+    ];
+
+    MouseCursor getCursorForAlignment(Alignment alignment) {
+      if (alignment == Alignment.topLeft || alignment == Alignment.bottomRight) {
+        return SystemMouseCursors.resizeUpLeftDownRight;
+      }
+      if (alignment == Alignment.topRight || alignment == Alignment.bottomLeft) {
+        return SystemMouseCursors.resizeUpRightDownLeft;
+      }
+      if (alignment == Alignment.topCenter ||
+          alignment == Alignment.bottomCenter) {
+        return SystemMouseCursors.resizeUpDown;
+      }
+      if (alignment == Alignment.centerLeft ||
+          alignment == Alignment.centerRight) {
+        return SystemMouseCursors.resizeLeftRight;
+      }
+      return SystemMouseCursors.basic;
+    }
+
+    return handleAlignments.map((alignment) {
+      return Align(
+        alignment: alignment,
+        child: GestureDetector(
+          onPanStart: (details) {
+            setState(() {
+              _isResizing = true;
+              _resizingNodeId = node.id;
+              _resizeHandleAlignment = alignment;
+            });
+          },
+          onPanUpdate: (details) {
+            if (!_isResizing || _resizingNodeId != node.id) return;
+
+            setState(() {
+              final themeProvider = context.read<ThemeProvider>();
+              final minWidth = themeProvider.nodeWidth / 2;
+              final minHeight = themeProvider.nodeHeight / 2;
+
+              double newWidth = node.width ?? themeProvider.nodeWidth;
+              double newHeight = node.height ?? themeProvider.nodeHeight;
+              Offset newPosition = node.position;
+
+              if (_resizeHandleAlignment!.x < 0) {
+                final proposedWidth = newWidth - details.delta.dx;
+                if (proposedWidth >= minWidth) {
+                  newWidth = proposedWidth;
+                  newPosition = newPosition + Offset(details.delta.dx, 0);
+                }
+              } else if (_resizeHandleAlignment!.x > 0) {
+                final proposedWidth = newWidth + details.delta.dx;
+                if (proposedWidth >= minWidth) {
+                  newWidth = proposedWidth;
+                }
               }
-            : null,
-        child: RepaintBoundary(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            transform: isDragging
-                ? (Matrix4.identity()..translate(0.0, -5.0))
-                : Matrix4.identity(),
-            child: _buildNodeContent(node, isSelected, canCollapse),
+
+              if (_resizeHandleAlignment!.y < 0) {
+                final proposedHeight = newHeight - details.delta.dy;
+                if (proposedHeight >= minHeight) {
+                  newHeight = proposedHeight;
+                  newPosition = newPosition + Offset(0, details.delta.dy);
+                }
+              } else if (_resizeHandleAlignment!.y > 0) {
+                final proposedHeight = newHeight + details.delta.dy;
+                if (proposedHeight >= minHeight) {
+                  newHeight = proposedHeight;
+                }
+              }
+
+              node.width = newWidth;
+              node.height = newHeight;
+              node.position = newPosition;
+            });
+            _edgeRepaint.value++;
+          },
+          onPanEnd: (details) {
+            setState(() {
+              _isResizing = false;
+              _resizingNodeId = null;
+              _resizeHandleAlignment = null;
+            });
+            widget.onSessionSave();
+          },
+          child: MouseRegion(
+            cursor: getCursorForAlignment(alignment),
+            child: Container(
+              width: handleSize,
+              height: handleSize,
+              margin: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.8),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+            ),
           ),
         ),
-      ),
-    );
-    });
+      );
+    }).toList();
   }
 
   void _generateChild(ChatNode parentNode, String userInput) {

@@ -19,6 +19,8 @@ ChatNode _$ChatNodeFromJson(Map<String, dynamic> json) => ChatNode(
           ? null
           : DateTime.parse(json['timestamp'] as String),
   isCollapsed: json['isCollapsed'] as bool? ?? false,
+  width: (json['width'] as num?)?.toDouble(),
+  height: (json['height'] as num?)?.toDouble(),
 );
 
 Map<String, dynamic> _$ChatNodeToJson(ChatNode instance) => <String, dynamic>{
@@ -30,4 +32,6 @@ Map<String, dynamic> _$ChatNodeToJson(ChatNode instance) => <String, dynamic>{
   'childrenIds': instance.childrenIds,
   'timestamp': instance.timestamp.toIso8601String(),
   'isCollapsed': instance.isCollapsed,
+  'width': instance.width,
+  'height': instance.height,
 };

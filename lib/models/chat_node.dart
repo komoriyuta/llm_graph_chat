@@ -21,6 +21,8 @@ class ChatNode {
   final List<String> childrenIds;
   final DateTime timestamp;
   bool isCollapsed;
+  double? width;
+  double? height;
 
   ChatNode({
     String? id,
@@ -31,6 +33,8 @@ class ChatNode {
     List<String>? childrenIds,
     DateTime? timestamp,
     this.isCollapsed = false,
+    this.width,
+    this.height,
   }) : id = id ?? const Uuid().v4(),
        position = position ?? Offset.zero,
        childrenIds = childrenIds ?? [],
