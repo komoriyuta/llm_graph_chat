@@ -79,15 +79,22 @@ class EdgePainter extends CustomPainter {
           ..strokeWidth = isSelected ? 2.5 : 1.0
           ..style = PaintingStyle.stroke;
 
-        final parentWidth = parentNode.width ?? defaultNodeWidth;
-        final parentHeight = parentNode.height ?? defaultNodeHeight;
-        final nodeWidth = node.width ?? defaultNodeWidth;
+        final parentRect = Rect.fromLTWH(
+          parentNode.position.dx,
+          parentNode.position.dy,
+          parentNode.width ?? defaultNodeWidth,
+          parentNode.height ?? defaultNodeHeight,
+        );
+        final childRect = Rect.fromLTWH(
+          node.position.dx,
+          node.position.dy,
+          node.width ?? defaultNodeWidth,
+          node.height ?? defaultNodeHeight,
+        );
 
-        final start = parentNode.position;
-        final end = node.position;
+        final startPoint = _getIntersectionPoint(parentRect, childRect);
+        final endPoint = _getIntersectionPoint(childRect, parentRect);
 
-        final startPoint = Offset(start.dx + parentWidth / 2, start.dy + parentHeight);
-        final endPoint = Offset(end.dx + nodeWidth / 2, end.dy);
 
         final dx = (endPoint.dx - startPoint.dx).abs();
         final dy = endPoint.dy - startPoint.dy;
@@ -111,12 +118,37 @@ class EdgePainter extends CustomPainter {
     }
   }
 
+  Offset _getIntersectionPoint(Rect rect, Rect otherRect) {
+    final from = rect.center;
+    final to = otherRect.center;
+    final d = to - from;
+
+    if (d == Offset.zero) return from;
+
+    final w = rect.width / 2;
+    final h = rect.height / 2;
+    final dx = d.dx.abs();
+    final dy = d.dy.abs();
+
+    if (dx * h > dy * w) {
+      // Intersects with left or right edge
+      final t = w / dx;
+      return from + d * t;
+    } else {
+      // Intersects with top or bottom edge
+      final t = h / dy;
+      return from + d * t;
+    }
+  }
+
   @override
   bool shouldRepaint(covariant EdgePainter oldDelegate) {
     return oldDelegate.graphVersion != graphVersion ||
         oldDelegate.selectedNode?.id != selectedNode?.id ||
         oldDelegate.isDarkMode != isDarkMode ||
-        !setEquals(oldDelegate.visibleNodeIds, visibleNodeIds);
+        !setEquals(oldDelegate.visibleNodeIds, visibleNodeIds) ||
+        oldDelegate.defaultNodeWidth != defaultNodeWidth ||
+        oldDelegate.defaultNodeHeight != defaultNodeHeight;
   }
 }
 
@@ -252,6 +284,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
 
   Set<String> _computeVisibleIds() {
     final theme = context.read<ThemeProvider>();
+    final nodeW = theme.nodeWidth;
+    final nodeH = theme.nodeHeight;
     final screenSize = MediaQuery.of(context).size;
     final inv = Matrix4.inverted(_transformationController.value);
     final topLeft = MatrixUtils.transformPoint(inv, Offset.zero);
@@ -259,12 +293,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
         inv, Offset(screenSize.width, screenSize.height));
     final viewport = Rect.fromPoints(topLeft, bottomRight).inflate(400);
     bool isVisible(ChatNode n) {
-      final nodeW = n.width ?? theme.nodeWidth;
-      final nodeH = n.height ?? theme.nodeHeight;
       final r = Rect.fromLTWH(n.position.dx, n.position.dy, nodeW, nodeH);
       return r.overlaps(viewport);
     }
-
     return {
       for (final n in widget.session.nodes)
         if (!_isHiddenByCollapsedAncestor(n) && isVisible(n)) n.id
@@ -282,83 +313,81 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
   void _calculateLayout() {
     if (!mounted) return;
     final rootNodes = _getRootNodes();
-    if (rootNodes.isEmpty) return;
-
     final themeProvider = context.read<ThemeProvider>();
-    final Map<String, double> subtreeWidths = {};
+    final nodeWidth = themeProvider.nodeWidth;
+    final nodeHeight = themeProvider.nodeHeight;
+    final horizontalSpacing = nodeWidth + 100.0;
+    final verticalSpacing = nodeHeight + 50.0;
 
-    // 1. Traverse nodes in reverse (post-order) to calculate subtree widths from bottom up
-    for (final node in widget.session.nodes.reversed) {
-      _calculateNodeSubtreeWidth(node, themeProvider, subtreeWidths);
-    }
-
-    // 2. Lay out nodes from top down
-    double currentX = 100.0;
-    final Set<String> placedNodes = {};
+    double startX = 100;
     for (final node in rootNodes) {
-      _layoutNode(node, currentX, 100.0, themeProvider, placedNodes, subtreeWidths);
-      currentX += subtreeWidths[node.id]! + 100.0; // Add horizontal spacing between root-level trees
+      _layoutNode(
+        node,
+        startX,
+        100,
+        horizontalSpacing,
+        verticalSpacing,
+        <String>{},
+      );
+      final subtreeWidth = _calculateSubtreeWidth(node);
+      startX += subtreeWidth * horizontalSpacing;
     }
-
-    if (mounted) {
-      setState(() {});
-    }
+    // 全てのノードの位置更新が終わったらUIを再描画
+    setState(() {});
   }
 
-  double _calculateNodeSubtreeWidth(
-      ChatNode node, ThemeProvider themeProvider, Map<String, double> widths) {
-    if (widths.containsKey(node.id)) {
-      return widths[node.id]!;
+  int _calculateSubtreeWidth(ChatNode node) {
+    if (node.isCollapsed || node.childrenIds.isEmpty) {
+      return 1;
     }
-
-    double childrenWidth = 0;
-    if (!node.isCollapsed && node.childrenIds.isNotEmpty) {
-      for (final childId in node.childrenIds) {
-        if (_chatNodeMap.containsKey(childId)) {
-          childrenWidth +=
-              _calculateNodeSubtreeWidth(_chatNodeMap[childId]!, themeProvider, widths);
-        }
+    int width = 0;
+    for (final childId in node.childrenIds) {
+      if (_chatNodeMap.containsKey(childId)) {
+        // 折りたたまれているサブツリーは幅1として扱い、子を配置しない
+        final child = _chatNodeMap[childId]!;
+        width += child.isCollapsed ? 1 : _calculateSubtreeWidth(child);
       }
-      // Add spacing between children
-      childrenWidth += (node.childrenIds.length - 1) * 100.0;
     }
-
-    final selfWidth = node.width ?? themeProvider.nodeWidth;
-    final finalWidth = math.max(selfWidth, childrenWidth);
-    widths[node.id] = finalWidth;
-    return finalWidth;
+    return math.max(1, width);
   }
 
   void _layoutNode(
     ChatNode node,
     double x,
     double y,
-    ThemeProvider themeProvider,
+    double horizontalSpacing,
+    double verticalSpacing,
     Set<String> placedNodes,
-    Map<String, double> subtreeWidths,
   ) {
     if (placedNodes.contains(node.id)) {
       return;
     }
-
-    final nodeWidth = node.width ?? themeProvider.nodeWidth;
-    final nodeSubtreeWidth = subtreeWidths[node.id]!;
-    // Center the node over its children's total width
-    final centeredX = x + (nodeSubtreeWidth / 2) - (nodeWidth / 2);
-    node.position = Offset(centeredX, y);
+    // node.positionプロパティを直接更新する
+    node.position = Offset(x, y);
     placedNodes.add(node.id);
 
-    if (!node.isCollapsed && node.childrenIds.isNotEmpty) {
-      final nodeHeight = node.height ?? themeProvider.nodeHeight;
-      final verticalSpacing = 50.0;
-      final childY = y + nodeHeight + verticalSpacing;
+    if (!node.isCollapsed) {
+      double childX = x;
+      double childY = y + verticalSpacing;
 
-      double childrenX = x;
       for (final childId in node.childrenIds) {
         if (_chatNodeMap.containsKey(childId)) {
           final child = _chatNodeMap[childId]!;
-          _layoutNode(child, childrenX, childY, themeProvider, placedNodes, subtreeWidths);
-          childrenX += subtreeWidths[child.id]! + 100.0; // horizontal spacing
+          if (child.isCollapsed) {
+            // 折りたたみ中の子サブツリーは配置計算を最小限に
+            child.position = Offset(childX, childY);
+            childX += horizontalSpacing;
+            continue;
+          }
+          _layoutNode(
+            child,
+            childX,
+            childY,
+            horizontalSpacing,
+            verticalSpacing,
+            placedNodes,
+          );
+          childX += horizontalSpacing;
         }
       }
     }
@@ -424,7 +453,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             ],
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.max,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               IntrinsicWidth(
@@ -448,9 +477,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                       fit: FlexFit.loose,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxWidth: (node.width ??
-                                  context.watch<ThemeProvider>().nodeWidth) -
-                              60,
+                          maxWidth:
+                              context.watch<ThemeProvider>().nodeWidth - 60,
                         ),
                         child: Text(
                           "You: ${node.userInput}",
@@ -476,98 +504,104 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                   ],
                 ),
               ),
-              if (!node.isCollapsed && node.llmOutput.isNotEmpty)
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 24, top: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.max,
-                      children: [
-                        Text(
-                          "LLM:",
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: textColor,
-                            fontWeight: FontWeight.bold,
-                          ),
+              if (!node.isCollapsed && node.llmOutput.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.only(left: 24),
+                  width: context.watch<ThemeProvider>().nodeWidth - 16,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "LLM:",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: textColor,
+                          fontWeight: FontWeight.bold,
                         ),
-                        const SizedBox(height: 4),
-                        Expanded(
-                          child: ScrollConfiguration(
-                            behavior:
-                                ScrollConfiguration.of(context).copyWith(
-                              scrollbars: true,
-                              overscroll: false,
-                              physics: const ClampingScrollPhysics(),
-                            ),
-                            child: Builder(builder: (context) {
-                              if (!_llmOutputScrollControllers
-                                  .containsKey(node.id)) {
-                                _llmOutputScrollControllers[node.id] =
-                                    ScrollController();
-                              }
-                              final full = node.llmOutput;
-                              final expanded = _expandedOutputIds.contains(node.id);
-                              final preview = full.length > 500 && !expanded
-                                  ? full.substring(0, 500) + '...'
-                                  : full;
-                              return RawScrollbar(
-                                thumbVisibility: true,
-                                trackVisibility: true,
-                                thumbColor: isDarkMode
-                                    ? Colors.grey.shade600
-                                    : Colors.grey.shade400,
-                                trackColor: isDarkMode
-                                    ? Colors.grey.shade800
-                                    : Colors.grey.shade200,
-                                thickness: 8,
-                                radius: const Radius.circular(4),
-                                controller:
-                                    _llmOutputScrollControllers[node.id],
-                                child: SingleChildScrollView(
-                                  controller:
-                                      _llmOutputScrollControllers[node.id],
-                                  child: _buildMarkdownContent(
-                                    preview,
-                                    TextStyle(
-                                      fontSize: 13,
-                                      color: textColor,
-                                      height: 1.5,
-                                    ),
-                                    isDarkMode,
+                      ),
+                      const SizedBox(height: 4),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight:
+                              context.watch<ThemeProvider>().nodeHeight - 100,
+                        ),
+                        child: ScrollConfiguration(
+                          behavior:
+                              ScrollConfiguration.of(context).copyWith(
+                            scrollbars: true,
+                            overscroll: false,
+                            physics: const ClampingScrollPhysics(),
+                          ),
+                          child: Builder(builder: (context) {
+                            if (!_llmOutputScrollControllers
+                                .containsKey(node.id)) {
+                              _llmOutputScrollControllers[node.id] =
+                                  ScrollController();
+                            }
+                            final full = node.llmOutput;
+                            final expanded = _expandedOutputIds.contains(node.id);
+                            final preview = full.length > 500 && !expanded
+                                ? full.substring(0, 500) + '...'
+                                : full;
+                            return RawScrollbar(
+                              thumbVisibility: true,
+                              trackVisibility: true,
+                              thumbColor: isDarkMode
+                                  ? Colors.grey.shade600
+                                  : Colors.grey.shade400,
+                              trackColor: isDarkMode
+                                  ? Colors.grey.shade800
+                                  : Colors.grey.shade200,
+                              thickness: 8,
+                              radius: const Radius.circular(4),
+                              controller: _llmOutputScrollControllers[node.id],
+                              child: SingleChildScrollView(
+                                controller: _llmOutputScrollControllers[node.id],
+                                child: _buildMarkdownContent(
+                                  preview,
+                                  TextStyle(
+                                    fontSize: 13,
+                                    color: textColor,
+                                    height: 1.5,
                                   ),
+                                  isDarkMode,
                                 ),
-                              );
-                            }),
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
+                      if (node.llmOutput.length > 500)
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              if (_expandedOutputIds.contains(node.id)) {
+                                _expandedOutputIds.remove(node.id);
+                              } else {
+                                _expandedOutputIds.add(node.id);
+                              }
+                            });
+                          },
+                          child: Text(
+                            _expandedOutputIds.contains(node.id)
+                                ? 'Show less'
+                                : 'Show more',
+                            style: TextStyle(color: textColor),
                           ),
                         ),
-                        if (node.llmOutput.length > 500)
-                          TextButton(
-                            onPressed: () {
-                              setState(() {
-                                if (_expandedOutputIds.contains(node.id)) {
-                                  _expandedOutputIds.remove(node.id);
-                                } else {
-                                  _expandedOutputIds.add(node.id);
-                                }
-                              });
-                            },
-                            child: Text(
-                              _expandedOutputIds.contains(node.id)
-                                  ? 'Show less'
-                                  : 'Show more',
-                              style: TextStyle(color: textColor),
-                            ),
-                          ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
+              ],
               if (isSelected && !node.isCollapsed) ...[
+                const SizedBox(height: 8),
                 const Divider(height: 8, thickness: 0.5),
                 Container(
-                  padding: const EdgeInsets.only(top: 8),
+                  constraints: BoxConstraints(
+                    maxWidth: context.watch<ThemeProvider>().nodeWidth - 16,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -591,7 +625,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                             ),
                             onSubmitted: (value) => _generateChild(node, value),
                           ),
-                        ),
+                          ),
                       ),
                       const SizedBox(width: 4),
                       SizedBox(
@@ -623,7 +657,6 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
     if (widget.session.nodes.isEmpty) {
       return const Center(child: Text("Graph is empty."));
     }
-    final themeProvider = context.watch<ThemeProvider>();
 
     return InteractiveViewer(
       constrained: false,
@@ -631,8 +664,8 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       minScale: 0.01,
       maxScale: 2.0,
       transformationController: _transformationController,
-      scaleEnabled: !_isNodeHovered && !_isResizing,
-      panEnabled: !_isNodeHovered && !_isResizing,
+      scaleEnabled: !_isNodeHovered,
+      panEnabled: !_isNodeHovered,
       onInteractionEnd: (_) {
         setState(() {
           _visibleIds = _computeVisibleIds();
@@ -650,11 +683,11 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                 nodes: widget.session.nodes,
                 chatNodeMap: _chatNodeMap,
                 selectedNode: widget.selectedNode,
-                isDarkMode: themeProvider.isDarkMode,
+                isDarkMode: context.watch<ThemeProvider>().isDarkMode,
                 graphVersion: widget.graphVersion,
                 visibleNodeIds: _visibleIds ?? _computeVisibleIds(),
-                defaultNodeWidth: themeProvider.nodeWidth,
-                defaultNodeHeight: themeProvider.nodeHeight,
+                defaultNodeWidth: context.read<ThemeProvider>().nodeWidth,
+                defaultNodeHeight: context.read<ThemeProvider>().nodeHeight,
                 repaint: _edgeRepaint,
               ),
             ),
@@ -833,7 +866,6 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
               _resizingNodeId = null;
               _resizeHandleAlignment = null;
             });
-            _calculateLayout();
             widget.onSessionSave();
           },
           child: MouseRegion(
@@ -841,11 +873,9 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             child: Container(
               width: handleSize,
               height: handleSize,
-              margin: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.8),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 1.5),
+              decoration: const BoxDecoration(
+                color: Colors.transparent,
+                shape: BoxShape.rectangle,
               ),
             ),
           ),
