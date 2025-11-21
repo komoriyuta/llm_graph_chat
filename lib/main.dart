@@ -1,46 +1,36 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/chat_screen.dart';
-import 'providers/theme_provider.dart';
-import 'providers/session_provider.dart';
+import 'providers/theme_notifier.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 void main() {
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => SessionProvider()),
-      ],
-      child: const MyApp(),
+    const ProviderScope(
+      child: MyApp(),
     ),
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Consumer<ThemeProvider>(
-      builder: (context, themeProvider, child) {
-        // MaterialAppの引数として、title, theme, homeなどと同じ階層に
-        // localizationsDelegatesとsupportedLocalesを配置します。
-        return MaterialApp(
-          title: 'LLM Graph Chat',
-          theme: themeProvider.theme,
-          home: const ChatScreen(),
-          // localizationsDelegatesとsupportedLocalesをここへ移動
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          supportedLocales: const [
-            Locale("ja", "JP"),
-          ],
-        );
-      },
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(themeProvider);
+    
+    return MaterialApp(
+      title: 'LLM Graph Chat',
+      theme: theme,
+      home: const ChatScreen(),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale("ja", "JP"),
+      ],
     );
   }
 }

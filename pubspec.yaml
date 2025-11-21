@@ -34,7 +34,6 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.6
   shared_preferences: ^2.2.2
-  provider: ^6.1.1
   share_plus: ^7.2.2
   flutter_secure_storage: ^9.2.4
   graphview: ^1.2.0
@@ -44,6 +43,9 @@ dependencies:
   json_annotation: ^4.8.1
   http: ^1.2.0
   flutter_markdown: any
+  flutter_riverpod: ^3.0.3
+  riverpod_annotation: ^3.0.3
+  freezed_annotation: ^3.1.0
   
   
 
@@ -51,8 +53,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: any
-  build_runner: any
+  build_runner: ^2.7.1
   json_serializable: any
+  riverpod_generator: ^3.0.3
+  freezed: ^3.2.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

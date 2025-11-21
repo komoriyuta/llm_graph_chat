@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../utils/platform_util.dart';
 import '../models/chat_node.dart';
 import '../models/graph_session.dart';
@@ -9,17 +10,16 @@ import '../services/secure_storage_service.dart';
 import '../widgets/chat_graph.dart';
 import '../widgets/session_drawer.dart';
 import 'settings_screen.dart';
-import 'package:provider/provider.dart';
-import '../providers/session_provider.dart';
+import '../providers/session_notifier.dart';
 
-class ChatScreen extends StatefulWidget {
+class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen> {
   ChatNode? _selectedNode;
   late LlmService _llmService;
   bool _isGenerating = false;
@@ -51,18 +51,13 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-
-  Future<void> _saveCurrentSession() async {
-    await context.read<SessionProvider>().saveNow();
-  }
-
   void _createNewSession() {
-    context.read<SessionProvider>().createNewSession();
+    ref.read(sessionProvider.notifier).createNewSession();
     setState(() => _selectedNode = null);
   }
 
   Future<void> _deleteSession(GraphSession session) async {
-    context.read<SessionProvider>().deleteSession(session.id);
+    ref.read(sessionProvider.notifier).deleteSession(session.id);
   }
 
   Future<void> _exportSession() async {
@@ -70,7 +65,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final timestamp = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}'
                      '_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
     final filename = 'chat_export_$timestamp.json';
-    final current = context.read<SessionProvider>().currentSession;
+    final current = ref.read(sessionProvider).currentSession;
     if (current == null) return;
     final jsonStr = const JsonEncoder.withIndent('  ').convert(current.toJson());
     
@@ -95,11 +90,11 @@ class _ChatScreenState extends State<ChatScreen> {
         // SessionList 形式にも対応
         final list = SessionList.fromJson(decoded);
         for (final s in list.sessions) {
-          context.read<SessionProvider>().addImportedSession(s);
+          ref.read(sessionProvider.notifier).addImportedSession(s);
         }
       } else if (decoded is Map<String, dynamic>) {
         final session = GraphSession.fromJson(decoded);
-        context.read<SessionProvider>().addImportedSession(session);
+        ref.read(sessionProvider.notifier).addImportedSession(session);
       } else {
         throw Exception('Unsupported JSON');
       }
@@ -116,11 +111,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _updateSessionTitle(GraphSession session, String newTitle) async {
-    context.read<SessionProvider>().updateSessionTitle(session.id, newTitle);
+    ref.read(sessionProvider.notifier).updateSessionTitle(session.id, newTitle);
   }
 
   void _switchSession(GraphSession session) {
-    context.read<SessionProvider>().switchSession(session.id);
+    ref.read(sessionProvider.notifier).switchSession(session.id);
     setState(() => _selectedNode = null);
   }
 
@@ -136,19 +131,16 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     setState(() => _isGenerating = true);
 
-    final provider = context.read<SessionProvider>();
-    final firstNode = provider.addRootNode(userInput);
-    setState(() => _selectedNode = firstNode);
-
-    final current = provider.currentSession!;
-    final llmResponse = await _llmService.generateResponse(current, firstNode);
-
-    provider.updateNodeOutput(firstNode.id, llmResponse);
-    setState(() => _isGenerating = false);
+    final notifier = ref.read(sessionProvider.notifier);
+    final firstNode = await notifier.addRootNode(userInput);
+    setState(() {
+      _selectedNode = firstNode;
+      _isGenerating = false;
+    });
   }
 
   void _toggleNodeCollapse(ChatNode node) {
-    context.read<SessionProvider>().toggleNodeCollapse(node.id);
+    ref.read(sessionProvider.notifier).toggleNodeCollapse(node.id);
   }
 
   void _handleGenerateChild(ChatNode parentNode, String userInput) async {
@@ -160,15 +152,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _isGenerating = true;
     });
 
-    final provider = context.read<SessionProvider>();
-    final newNode = provider.addChildNode(parentNode, userInput);
-    setState(() => _selectedNode = newNode);
-
-    final current = provider.currentSession!;
-    final llmResponse = await _llmService.generateResponse(current, newNode);
-
-    provider.updateNodeOutput(newNode.id, llmResponse);
-    setState(() => _isGenerating = false);
+    final notifier = ref.read(sessionProvider.notifier);
+    final newNode = await notifier.addChildNode(parentNode, userInput);
+    setState(() {
+      _selectedNode = newNode;
+      _isGenerating = false;
+    });
   }
 
   void _handleRegenerate(ChatNode node) async {
@@ -176,10 +165,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _isGenerating = true);
 
-    final provider = context.read<SessionProvider>();
-    final current = provider.currentSession!;
-    final llmResponse = await _llmService.generateResponse(current, node);
-    provider.updateNodeOutput(node.id, llmResponse);
+    final notifier = ref.read(sessionProvider.notifier);
+    await notifier.regenerateNode(node);
     setState(() => _isGenerating = false);
   }
 
@@ -209,9 +196,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final sessionProvider = context.watch<SessionProvider>();
-    final currentSession = sessionProvider.currentSession;
-    final isSessionInitialized = currentSession != null;
+    final sessionState = ref.watch(sessionProvider);
+    final currentSession = sessionState.currentSession;
+    final isSessionInitialized = currentSession != null && !sessionState.isLoading;
 
     if (_isGenerating && !isSessionInitialized) {
       return Scaffold(
@@ -222,7 +209,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Scaffold(
       drawer: SessionDrawer(
-        sessions: sessionProvider.sessions,
+        sessions: sessionState.sessions,
         currentSession: currentSession,
         onSessionSelect: _switchSession,
         onNewSession: _createNewSession,
@@ -308,13 +295,13 @@ class _ChatScreenState extends State<ChatScreen> {
               ? _buildInitialInputView()
               : ChatGraphWidget(
                   session: currentSession,
-                  graphVersion: sessionProvider.graphVersion,
+                  graphVersion: sessionState.graphVersion,
                   selectedNode: _selectedNode,
                   onGenerateChild: _handleGenerateChild,
                   onNodeSelected: _handleNodeSelected,
                   onToggleCollapse: _toggleNodeCollapse,
                   onRegenerate: _handleRegenerate,
-                  onSessionSave: () => sessionProvider.scheduleSave(), 
+                  onSessionSave: () => ref.read(sessionProvider.notifier).scheduleSave(), 
                 ))
           : const Center(child: Text("Initializing...")),
     );
