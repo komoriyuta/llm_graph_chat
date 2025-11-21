@@ -456,6 +456,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Header Row (User Input)
               IntrinsicWidth(
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -504,97 +505,97 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
                   ],
                 ),
               ),
+              // LLM Output Area
               if (!node.isCollapsed && node.llmOutput.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.only(left: 24),
-                  width: context.watch<ThemeProvider>().nodeWidth - 16,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "LLM:",
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: textColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight:
-                              context.watch<ThemeProvider>().nodeHeight - 100,
-                        ),
-                        child: ScrollConfiguration(
-                          behavior:
-                              ScrollConfiguration.of(context).copyWith(
-                            scrollbars: true,
-                            overscroll: false,
-                            physics: const ClampingScrollPhysics(),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.only(left: 24),
+                    width: double.infinity,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "LLM:",
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: textColor,
+                            fontWeight: FontWeight.bold,
                           ),
-                          child: Builder(builder: (context) {
-                            if (!_llmOutputScrollControllers
-                                .containsKey(node.id)) {
-                              _llmOutputScrollControllers[node.id] =
-                                  ScrollController();
-                            }
-                            final full = node.llmOutput;
-                            final expanded = _expandedOutputIds.contains(node.id);
-                            final preview = full.length > 500 && !expanded
-                                ? full.substring(0, 500) + '...'
-                                : full;
-                            return RawScrollbar(
-                              thumbVisibility: true,
-                              trackVisibility: true,
-                              thumbColor: isDarkMode
-                                  ? Colors.grey.shade600
-                                  : Colors.grey.shade400,
-                              trackColor: isDarkMode
-                                  ? Colors.grey.shade800
-                                  : Colors.grey.shade200,
-                              thickness: 8,
-                              radius: const Radius.circular(4),
-                              controller: _llmOutputScrollControllers[node.id],
-                              child: SingleChildScrollView(
-                                controller: _llmOutputScrollControllers[node.id],
-                                child: _buildMarkdownContent(
-                                  preview,
-                                  TextStyle(
-                                    fontSize: 13,
-                                    color: textColor,
-                                    height: 1.5,
-                                  ),
-                                  isDarkMode,
-                                ),
-                              ),
-                            );
-                          }),
                         ),
-                      ),
-                      if (node.llmOutput.length > 500)
-                        TextButton(
-                          onPressed: () {
-                            setState(() {
-                              if (_expandedOutputIds.contains(node.id)) {
-                                _expandedOutputIds.remove(node.id);
-                              } else {
-                                _expandedOutputIds.add(node.id);
+                        const SizedBox(height: 4),
+                        Expanded(
+                          child: ScrollConfiguration(
+                            behavior:
+                                ScrollConfiguration.of(context).copyWith(
+                              scrollbars: true,
+                              overscroll: false,
+                              physics: const ClampingScrollPhysics(),
+                            ),
+                            child: Builder(builder: (context) {
+                              if (!_llmOutputScrollControllers
+                                  .containsKey(node.id)) {
+                                _llmOutputScrollControllers[node.id] =
+                                    ScrollController();
                               }
-                            });
-                          },
-                          child: Text(
-                            _expandedOutputIds.contains(node.id)
-                                ? 'Show less'
-                                : 'Show more',
-                            style: TextStyle(color: textColor),
+                              final full = node.llmOutput;
+                              final expanded = _expandedOutputIds.contains(node.id);
+                              final preview = full.length > 500 && !expanded
+                                  ? full.substring(0, 500) + '...'
+                                  : full;
+                              return RawScrollbar(
+                                thumbVisibility: true,
+                                trackVisibility: true,
+                                thumbColor: isDarkMode
+                                    ? Colors.grey.shade600
+                                    : Colors.grey.shade400,
+                                trackColor: isDarkMode
+                                    ? Colors.grey.shade800
+                                    : Colors.grey.shade200,
+                                thickness: 8,
+                                radius: const Radius.circular(4),
+                                controller: _llmOutputScrollControllers[node.id],
+                                child: SingleChildScrollView(
+                                  controller: _llmOutputScrollControllers[node.id],
+                                  child: _buildMarkdownContent(
+                                    preview,
+                                    TextStyle(
+                                      fontSize: 13,
+                                      color: textColor,
+                                      height: 1.5,
+                                    ),
+                                    isDarkMode,
+                                  ),
+                                ),
+                              );
+                            }),
                           ),
                         ),
-                    ],
+                        if (node.llmOutput.length > 500)
+                          TextButton(
+                            onPressed: () {
+                              setState(() {
+                                if (_expandedOutputIds.contains(node.id)) {
+                                  _expandedOutputIds.remove(node.id);
+                                } else {
+                                  _expandedOutputIds.add(node.id);
+                                }
+                              });
+                            },
+                            child: Text(
+                              _expandedOutputIds.contains(node.id)
+                                  ? 'Show less'
+                                  : 'Show more',
+                              style: TextStyle(color: textColor),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ],
+              // Input Area (if selected)
               if (isSelected && !node.isCollapsed) ...[
                 const SizedBox(height: 8),
                 const Divider(height: 8, thickness: 0.5),
@@ -775,7 +776,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
       return [];
     }
 
-    const handleSize = 12.0;
+    const handleSize = 24.0; // Increased handle size for better hit testing
     final handleAlignments = [
       Alignment.topLeft,
       Alignment.topCenter,
@@ -820,12 +821,12 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             if (!_isResizing || _resizingNodeId != node.id) return;
 
             setState(() {
-              final themeProvider = context.read<ThemeProvider>();
-              final minWidth = themeProvider.nodeWidth / 2;
-              final minHeight = themeProvider.nodeHeight / 2;
+              // Enforce a reasonable minimum size to prevent overflow
+              const minWidth = 200.0;
+              const minHeight = 200.0; // Increased to prevent bottom overflow
 
-              double newWidth = node.width ?? themeProvider.nodeWidth;
-              double newHeight = node.height ?? themeProvider.nodeHeight;
+              double newWidth = node.width ?? context.read<ThemeProvider>().nodeWidth;
+              double newHeight = node.height ?? context.read<ThemeProvider>().nodeHeight;
               Offset newPosition = node.position;
 
               if (_resizeHandleAlignment!.x < 0) {
@@ -873,10 +874,7 @@ class _ChatGraphWidgetState extends State<ChatGraphWidget> {
             child: Container(
               width: handleSize,
               height: handleSize,
-              decoration: const BoxDecoration(
-                color: Colors.transparent,
-                shape: BoxShape.rectangle,
-              ),
+              color: Colors.transparent, // Transparent hit target, no visual dot
             ),
           ),
         ),
